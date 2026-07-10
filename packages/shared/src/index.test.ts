@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isValidLobbyCode,
   knockbackForce,
+  movementBlendFactor,
   normalizeLobbyCode,
   segmentCrossesArenaWall,
 } from "./index";
@@ -17,6 +18,17 @@ describe("knockbackForce", () => {
   });
   it("makes high damage meaningfully more dangerous", () => {
     expect(knockbackForce(100)).toBeGreaterThan(knockbackForce(0) * 2.3);
+  });
+});
+
+describe("movement response", () => {
+  it("accelerates decisively, brakes cleanly, and preserves dash momentum", () => {
+    const accelerate = movementBlendFactor(1 / 30, true, false, true);
+    const brake = movementBlendFactor(1 / 30, true, false, false);
+    const dash = movementBlendFactor(1 / 30, true, true, true);
+    expect(accelerate).toBeGreaterThan(0.4);
+    expect(brake).toBeGreaterThan(accelerate);
+    expect(dash).toBeLessThan(0.1);
   });
 });
 

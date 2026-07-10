@@ -341,6 +341,16 @@ export function Game({
         <i />
       </div>
       <div className={`impact-overlay ${impact}`} />
+      <div
+        className={`block-vfx ${combatHud.blocking ? "active" : ""} ${combatHud.parryActive ? "parry" : ""}`}
+      >
+        <i />
+        <i />
+      </div>
+      <div
+        className={`charge-vfx ${combatHud.heavyCharge > 0 ? "active" : ""}`}
+        style={{ "--charge": combatHud.heavyCharge } as React.CSSProperties}
+      />
       <div className="hud-card">
         <span>KNOCKBACK</span>
         <strong>

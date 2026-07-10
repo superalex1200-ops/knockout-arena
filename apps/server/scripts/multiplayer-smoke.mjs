@@ -36,7 +36,7 @@ clients.forEach((client, index) => {
         roomCode,
         mode: "private",
         protocolVersion: 1,
-        createRoom: index === 0,
+        createRoom: true,
       }),
     ),
   );

@@ -7,6 +7,7 @@ const player = (id: string, x: number, z: number): PlayerSnapshot => ({
   name: id,
   position: { x, y: 1.1, z },
   velocity: { x: 0, y: 0, z: 0 },
+  grounded: true,
   yaw: 0,
   knockback: 0,
   score: 0,

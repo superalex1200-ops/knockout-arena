@@ -74,6 +74,8 @@ export class ArenaRenderer {
     mesh: THREE.Mesh;
     velocity: THREE.Vector3;
     life: number;
+    grow?: number;
+    spin?: number;
   }> = [];
   private predictor = new MovementPredictor();
   private input: Input = {
@@ -336,9 +338,23 @@ export class ArenaRenderer {
         new THREE.CapsuleGeometry(0.17, 0.4, 4, 8),
         dark,
       );
+      leg.name = side < 0 ? "leg-left" : "leg-right";
       leg.position.set(side * 0.24, 0.28, 0);
       group.add(leg);
     }
+    const guard = new THREE.Mesh(
+      new THREE.TorusGeometry(0.62, 0.035, 8, 32),
+      new THREE.MeshBasicMaterial({
+        color: 0x72edff,
+        transparent: true,
+        opacity: 0.65,
+        depthWrite: false,
+      }),
+    );
+    guard.position.set(0, 1.5, -0.58);
+    guard.name = "guard";
+    guard.visible = false;
+    group.add(guard);
     const ring = new THREE.Mesh(
       new THREE.TorusGeometry(0.67, 0.035, 8, 28),
       new THREE.MeshBasicMaterial({
@@ -462,13 +478,22 @@ export class ArenaRenderer {
       if (matches(e.code, "dash") && this.rules.dashEnabled) {
         this.input.dash = true;
         if (performance.now() - this.lastDashEffect >= GAME.dashCooldownMs) {
-          this.lastDashEffect = performance.now();
-          this.dashEffect = 1;
+          const dashX = Number(this.input.right) - Number(this.input.left);
+          const dashZ = Number(this.input.back) - Number(this.input.forward);
+          if (dashX || dashZ) {
+            this.lastDashEffect = performance.now();
+            this.dashEffect = 1;
+            this.spawnDashBurst(dashX, dashZ);
+            this.audio.playDash();
+          }
         }
         this.onTutorialAction("dash");
       }
       if (matches(e.code, "block") && this.rules.blockEnabled) {
-        if (!this.input.block) this.blockStartedAt = performance.now();
+        if (!this.input.block) {
+          this.blockStartedAt = performance.now();
+          this.audio.playGuard();
+        }
         this.input.block = true;
         this.onTutorialAction("block");
       }
@@ -495,6 +520,7 @@ export class ArenaRenderer {
         dash: false,
         block: false,
       };
+      this.chargeStart = 0;
     };
     const move = (e: MouseEvent) => {
       if (document.pointerLockElement !== this.renderer.domElement) return;
@@ -515,8 +541,16 @@ export class ArenaRenderer {
         return;
       }
       if (e.button === 0) this.attack("light", 0);
-      if (e.button === 2 && this.rules.heavyEnabled)
-        this.chargeStart = performance.now();
+      if (e.button === 2 && this.rules.heavyEnabled) {
+        const now = performance.now();
+        if (
+          this.lastHeavyPunch === 0 ||
+          now - this.lastHeavyPunch >= GAME.heavyCooldownMs
+        ) {
+          this.activeFist = 1 - this.activeFist;
+          this.chargeStart = now;
+        }
+      }
     };
     const mouseUp = (e: MouseEvent) => {
       if (e.button === 2 && this.chargeStart) {
@@ -579,7 +613,7 @@ export class ArenaRenderer {
       return;
     if (kind === "light") this.lastLightPunch = now;
     else this.lastHeavyPunch = now;
-    this.activeFist = 1 - this.activeFist;
+    if (kind === "light") this.activeFist = 1 - this.activeFist;
     this.punchDuration = kind === "heavy" ? 0.32 : 0.22;
     this.punchTime = this.punchDuration;
     this.onTutorialAction(kind === "heavy" ? "heavy" : "punch");
@@ -597,6 +631,44 @@ export class ArenaRenderer {
     this.camera.aspect = w / Math.max(1, h);
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
+  }
+  private spawnDashBurst(moveX: number, moveZ: number): void {
+    if (this.settings.graphics === "low") return;
+    const sin = Math.sin(this.yaw),
+      cos = Math.cos(this.yaw);
+    const direction = new THREE.Vector3(
+      moveX * cos + moveZ * sin,
+      0,
+      -moveX * sin + moveZ * cos,
+    ).normalize();
+    const origin = this.predictor.position;
+    const count = this.settings.graphics === "high" ? 10 : 6;
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.025, 0.025, 0.55 + Math.random() * 0.45),
+        new THREE.MeshBasicMaterial({
+          color: i % 3 === 0 ? 0xff4778 : 0x68edff,
+          transparent: true,
+          opacity: 0.75,
+          depthWrite: false,
+        }),
+      );
+      mesh.position.set(
+        origin.x + (Math.random() - 0.5) * 1.2,
+        origin.y + 0.2 + Math.random() * 1.25,
+        origin.z + (Math.random() - 0.5) * 1.2,
+      );
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
+      this.scene.add(mesh);
+      this.effects.push({
+        mesh,
+        velocity: direction
+          .clone()
+          .multiplyScalar(-2.4 - Math.random() * 2)
+          .add(new THREE.Vector3(0, (Math.random() - 0.5) * 0.5, 0)),
+        life: 0.22 + Math.random() * 0.16,
+      });
+    }
   }
   private spawnWallHit(
     position: { x: number; y: number; z: number },
@@ -654,6 +726,27 @@ export class ArenaRenderer {
           (Math.random() - 0.5) * 4,
         ),
         life: 0.28 + Math.random() * 0.18,
+      });
+    }
+    if (heavy && this.settings.graphics !== "low") {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.22, 0.025, 8, 30),
+        new THREE.MeshBasicMaterial({
+          color: 0x8ff5ff,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        }),
+      );
+      ring.position.set(position.x, position.y + 0.8, position.z);
+      ring.rotation.x = Math.PI / 2;
+      this.scene.add(ring);
+      this.effects.push({
+        mesh: ring,
+        velocity: new THREE.Vector3(),
+        life: 0.32,
+        grow: 4.8,
+        spin: 3,
       });
     }
   }
@@ -742,10 +835,15 @@ export class ArenaRenderer {
         );
       }
     } else if (local) {
+      const movementAmount = Math.min(1, Math.hypot(moveX, moveZ));
+      const headBob =
+        local.grounded && !this.settings.reducedMotion
+          ? Math.sin(hudNow * 0.012) * 0.014 * movementAmount
+          : 0;
       this.camera.position.lerp(
         new THREE.Vector3(
           this.predictor.position.x,
-          this.predictor.position.y + 0.72,
+          this.predictor.position.y + 0.72 + headBob,
           this.predictor.position.z,
         ),
         Math.min(1, dt * 22),
@@ -769,6 +867,13 @@ export class ArenaRenderer {
       mesh.rotation.y = p.yaw;
       const ring = mesh.getObjectByName("ring") as THREE.Mesh | undefined;
       if (ring) ring.visible = p.protected;
+      const guard = mesh.getObjectByName("guard") as THREE.Mesh | undefined;
+      if (guard) {
+        guard.visible = p.blocking;
+        guard.scale.setScalar(1 + Math.sin(hudNow / 70) * 0.035);
+        (guard.material as THREE.MeshBasicMaterial).opacity =
+          0.5 + Math.sin(hudNow / 85) * 0.14;
+      }
       const left = mesh.getObjectByName("glove-left"),
         right = mesh.getObjectByName("glove-right");
       if (left && right) {
@@ -783,12 +888,32 @@ export class ArenaRenderer {
           Math.min(1, dt * 15),
         );
       }
+      const stride = Math.min(1, Math.hypot(p.velocity.x, p.velocity.z) / 7);
+      const legLeft = mesh.getObjectByName("leg-left"),
+        legRight = mesh.getObjectByName("leg-right");
+      if (legLeft && legRight) {
+        const swing = Math.sin(hudNow * 0.014) * 0.48 * stride;
+        legLeft.rotation.x +=
+          (swing - legLeft.rotation.x) * Math.min(1, dt * 14);
+        legRight.rotation.x +=
+          (-swing - legRight.rotation.x) * Math.min(1, dt * 14);
+      }
     }
     this.punchTime = Math.max(0, this.punchTime - dt);
     const phase =
       this.punchTime > 0
         ? Math.sin((this.punchTime / this.punchDuration) * Math.PI)
         : 0;
+    const chargeAmount = this.chargeStart
+      ? Math.min(1, (hudNow - this.chargeStart) / 1100)
+      : 0;
+    const movementAmount = Math.min(1, Math.hypot(moveX, moveZ));
+    const handSway = this.settings.reducedMotion
+      ? 0
+      : Math.sin(hudNow * 0.009) * 0.025 * movementAmount;
+    const handBob = this.settings.reducedMotion
+      ? 0
+      : Math.abs(Math.cos(hudNow * 0.009)) * 0.018 * movementAmount;
     for (let i = 0; i < this.fists.length; i++) {
       const fist = this.fists[i]!,
         side = fist.userData.side as number;
@@ -796,18 +921,34 @@ export class ArenaRenderer {
       const active = i === this.activeFist;
       const target = this.input.block
         ? new THREE.Vector3(side * 0.25, -0.16, -0.62)
-        : new THREE.Vector3(
-            side * (0.55 + (active ? phase * 0.08 : 0)),
-            -0.5,
-            -1.15 - (active ? phase * 0.8 : 0),
-          );
+        : chargeAmount > 0 && active
+          ? new THREE.Vector3(
+              side * (0.62 + chargeAmount * 0.16),
+              -0.52 - chargeAmount * 0.12,
+              -0.9 + chargeAmount * 0.36,
+            )
+          : new THREE.Vector3(
+              side * (0.55 + (active ? phase * 0.08 : 0)),
+              -0.5 + handBob,
+              -1.15 - (active ? phase * 0.8 : 0),
+            );
+      if (!this.input.block && chargeAmount === 0) target.x += handSway;
       fist.position.lerp(target, Math.min(1, dt * 26));
       fist.rotation.x +=
-        ((this.input.block ? -0.45 : this.chargeStart && active ? -0.55 : 0) -
+        ((this.input.block
+          ? -0.72
+          : chargeAmount > 0 && active
+            ? -0.35 - chargeAmount * 0.75
+            : 0) -
           fist.rotation.x) *
         Math.min(1, dt * 20);
       fist.rotation.z +=
-        ((this.input.block ? side * 0.26 : 0) - fist.rotation.z) *
+        ((this.input.block
+          ? side * 0.42
+          : chargeAmount > 0 && active
+            ? side * -0.3 * chargeAmount
+            : 0) -
+          fist.rotation.z) *
         Math.min(1, dt * 20);
     }
     this.dashEffect = Math.max(0, this.dashEffect - dt * 4.5);
@@ -822,6 +963,9 @@ export class ArenaRenderer {
       effect.life -= dt;
       effect.velocity.y -= 9 * dt;
       effect.mesh.position.addScaledVector(effect.velocity, dt);
+      if (effect.grow)
+        effect.mesh.scale.addScalar(Math.max(0, effect.grow * dt));
+      if (effect.spin) effect.mesh.rotation.z += effect.spin * dt;
       (effect.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(
         0,
         effect.life * 2,

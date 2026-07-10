@@ -739,7 +739,6 @@ setInterval(() => {
       players: [...room.players.values()].map(
         ({
           input: _i,
-          grounded: _g,
           lastAttack: _a,
           lastDash: _d,
           dashUntil: _du,

@@ -58,6 +58,7 @@ export type PlayerSnapshot = {
   name: string;
   position: Vec3;
   velocity: Vec3;
+  grounded: boolean;
   yaw: number;
   knockback: number;
   score: number;
@@ -169,6 +170,24 @@ export function knockbackForce(percent: number, heavyCharge = 0): number {
   const curved = 1 + 1.9 * (1 - Math.exp(-Math.max(0, percent) / 65));
   const finisher = 1 + Math.min(0.25, Math.max(0, percent - 85) / 90);
   return (heavyCharge > 0 ? 9.2 + heavyCharge * 3.8 : 8.2) * curved * finisher;
+}
+
+export function movementBlendFactor(
+  dt: number,
+  grounded: boolean,
+  dashing: boolean,
+  hasInput: boolean,
+): number {
+  const sharpness = dashing
+    ? 2.2
+    : grounded
+      ? hasInput
+        ? 18
+        : 26
+      : hasInput
+        ? 4.5
+        : 1.8;
+  return 1 - Math.exp(-Math.max(0, dt) * sharpness);
 }
 
 export function normalizeLobbyCode(value: string): string {

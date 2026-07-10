@@ -1,6 +1,7 @@
 import {
   ARENA_WALLS,
   GAME,
+  movementBlendFactor,
   PLAYER_RADIUS,
   knockbackForce,
   type AttackKind,
@@ -197,7 +198,12 @@ export function stepPlayer(
   const targetX = stunned ? 0 : (worldX / length) * speed;
   const targetZ = stunned ? 0 : (worldZ / length) * speed;
   const dashing = now < player.dashUntil;
-  const control = Math.min(1, dt * (dashing ? 0.75 : player.grounded ? 13 : 3));
+  const control = movementBlendFactor(
+    dt,
+    player.grounded,
+    dashing,
+    Boolean(worldX || worldZ),
+  );
   player.velocity.x += (targetX - player.velocity.x) * control;
   player.velocity.z += (targetZ - player.velocity.z) * control;
   if (!stunned && player.input.jump && player.grounded) {

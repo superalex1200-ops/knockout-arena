@@ -128,6 +128,67 @@
 .match-chat .chat-log {
   max-height: 180px;
 }
+.block-vfx {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+.block-vfx::before,
+.block-vfx::after {
+  position: absolute;
+  top: 50%;
+  width: 24vw;
+  height: 3px;
+  content: "";
+  background: linear-gradient(90deg, transparent, #67eaffaa);
+  box-shadow: 0 0 16px #42dfff88;
+}
+.block-vfx::before {
+  left: 8%;
+  transform: rotate(22deg);
+}
+.block-vfx::after {
+  right: 8%;
+  transform: rotate(-22deg) scaleX(-1);
+}
+.block-vfx.active {
+  opacity: 0.48;
+}
+.block-vfx.parry {
+  opacity: 0.95;
+  animation: parry-pulse 190ms ease-out infinite alternate;
+}
+.block-vfx.parry::before,
+.block-vfx.parry::after {
+  background: linear-gradient(90deg, transparent, #fff);
+  box-shadow: 0 0 26px #78efff;
+}
+.charge-vfx {
+  position: fixed;
+  inset: 18%;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  border: 1px solid #ff477800;
+  box-shadow: inset 0 0 90px #ff376e00;
+  transform: scale(1.04);
+  transition: opacity 100ms ease;
+}
+.charge-vfx.active {
+  opacity: calc(0.15 + var(--charge) * 0.5);
+  border-color: #ff628b88;
+  box-shadow: inset 0 0 calc(40px + var(--charge) * 80px) #ff376e44;
+  transform: scale(calc(1.04 - var(--charge) * 0.04));
+}
+@keyframes parry-pulse {
+  to {
+    filter: brightness(1.8);
+    transform: scale(1.01);
+  }
+}
 .join-error section {
   border-color: #ff477899;
 }
