@@ -1,0 +1,20 @@
+{
+  "name": "knockout-arena",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.0.7",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @knockout/server --filter @knockout/client dev",
+    "build": "pnpm -r build",
+    "start": "node apps/server/dist/index.js",
+    "test": "pnpm -r test",
+    "test:production": "node apps/server/scripts/production-smoke.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3"
+  }
+}

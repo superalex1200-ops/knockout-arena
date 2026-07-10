@@ -1,0 +1,15 @@
+services:
+  game:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: 10000
+      CLIENT_DIST: /app/public
+    ports:
+      - "8080:10000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:10000/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
