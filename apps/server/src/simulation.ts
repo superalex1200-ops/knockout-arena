@@ -16,6 +16,7 @@ export type InputState = {
   jump: boolean;
   dash: boolean;
   blocking: boolean;
+  charging: boolean;
 };
 export type PositionSample = { time: number; position: Vec3 };
 export type SimPlayer = PlayerSnapshot & {
@@ -28,6 +29,8 @@ export type SimPlayer = PlayerSnapshot & {
   respawnAt: number;
   protectionUntil: number;
   blockStarted: number;
+  blockCooldownUntil: number;
+  chargeStarted: number;
   lastWallHit: number;
   airRecoveryAvailable: boolean;
   lastChat: number;
@@ -76,6 +79,7 @@ export function createPlayer(
     stocksRemaining: 3,
     eliminated: false,
     blocking: false,
+    charging: false,
     protected: true,
     ready: bot,
     host: false,
@@ -87,6 +91,7 @@ export function createPlayer(
       jump: false,
       dash: false,
       blocking: false,
+      charging: false,
     },
     grounded: true,
     lastAttack: 0,
@@ -95,6 +100,8 @@ export function createPlayer(
     respawnAt: 0,
     protectionUntil: Date.now() + GAME.spawnProtectionMs,
     blockStarted: 0,
+    blockCooldownUntil: 0,
+    chargeStarted: 0,
     lastWallHit: 0,
     airRecoveryAvailable: true,
     lastChat: 0,
@@ -113,13 +120,20 @@ export function respawn(player: SimPlayer, index: number, now: number): void {
   const spawn = spawnPoints[index % spawnPoints.length] ?? spawnPoints[0]!;
   player.position = { ...spawn };
   player.velocity = { x: 0, y: 0, z: 0 };
-  player.knockback = Math.max(0, player.knockback - 18);
+  player.knockback = 0;
   player.grounded = true;
   player.respawnAt = 0;
   player.protectionUntil = now + GAME.spawnProtectionMs;
   player.protected = true;
   player.airRecoveryAvailable = true;
   player.dashUntil = 0;
+  player.blocking = false;
+  player.charging = false;
+  player.input.blocking = false;
+  player.input.charging = false;
+  player.blockStarted = 0;
+  player.blockCooldownUntil = 0;
+  player.chargeStarted = 0;
   player.damageContributors.clear();
   player.hitStunUntil = 0;
   player.recentHitCount = 0;
@@ -182,8 +196,25 @@ export function stepPlayer(
   if (player.respawnAt) return { knockedOut: false };
   player.protected = now < player.protectionUntil;
   player.yaw = player.input.yaw;
-  if (player.input.blocking !== player.blocking) {
-    player.blocking = player.input.blocking;
+  const wantsCharging =
+    player.input.charging && !player.input.blocking && !player.blocking;
+  if (wantsCharging && !player.charging) {
+    player.charging = true;
+    player.chargeStarted = now;
+  } else if (!wantsCharging && player.charging) {
+    player.charging = false;
+  }
+  if (player.blocking && now - player.blockStarted >= GAME.blockMaxHoldMs) {
+    player.blocking = false;
+    player.blockCooldownUntil = now + GAME.blockCooldownMs;
+  }
+  const wantsBlock =
+    player.input.blocking &&
+    !player.input.charging &&
+    !player.charging &&
+    now >= player.blockCooldownUntil;
+  if (wantsBlock !== player.blocking) {
+    player.blocking = wantsBlock;
     if (player.blocking) player.blockStarted = now;
   }
   const sin = Math.sin(player.yaw),
@@ -194,7 +225,8 @@ export function stepPlayer(
   const stunned = now < player.hitStunUntil;
   const speed =
     (player.grounded ? GAME.moveSpeed : GAME.airSpeed) *
-    (player.bot ? 0.62 : 1);
+    (player.bot ? 0.62 : 1) *
+    (player.charging ? 0.52 : 1);
   const targetX = stunned ? 0 : (worldX / length) * speed;
   const targetZ = stunned ? 0 : (worldZ / length) * speed;
   const dashing = now < player.dashUntil;
@@ -267,6 +299,22 @@ export function stepPlayer(
   )
     player.positionHistory.shift();
   return { knockedOut: player.position.y < GAME.deathHeight, wallHit };
+}
+
+export function consumeHeavyCharge(
+  player: SimPlayer,
+  claimedCharge: number,
+  now: number,
+): number | undefined {
+  if (player.blocking || !player.charging || player.chargeStarted <= 0)
+    return undefined;
+  const chargedFor = now - player.chargeStarted;
+  player.charging = false;
+  player.input.charging = false;
+  player.chargeStarted = 0;
+  if (chargedFor < GAME.heavyMinChargeMs) return undefined;
+  const serverCharge = Math.min(1, chargedFor / GAME.heavyChargeMs);
+  return Math.min(Math.max(0, claimedCharge), serverCharge);
 }
 
 function historicalPosition(player: SimPlayer, targetTime: number): Vec3 {

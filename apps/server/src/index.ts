@@ -20,6 +20,7 @@ import {
 } from "@knockout/shared";
 import {
   botNavigationTarget,
+  consumeHeavyCharge,
   createPlayer,
   creditKnockout,
   performAttack,
@@ -463,7 +464,8 @@ wss.on("connection", (socket) => {
         yaw: msg.yaw,
         jump: !!msg.jump,
         dash: room.rules.dashEnabled && !!msg.dash,
-        blocking: room.rules.blockEnabled && !!msg.blocking,
+        blocking: room.rules.blockEnabled && !!msg.blocking && !msg.charging,
+        charging: room.rules.heavyEnabled && !!msg.charging && !msg.blocking,
       };
     } else if (
       msg.type === "attack" &&
@@ -476,12 +478,16 @@ wss.on("connection", (socket) => {
       const now = Date.now();
       const rewindMs = Math.max(0, Math.min(150, now - msg.clientTime));
       if (msg.kind === "heavy" && !room.rules.heavyEnabled) return;
+      if (msg.kind === "light" && (player.blocking || player.charging)) return;
+      const verifiedCharge =
+        msg.kind === "heavy" ? consumeHeavyCharge(player, msg.charge, now) : 0;
+      if (msg.kind === "heavy" && verifiedCharge === undefined) return;
       const previousAttackAt = player.lastAttack;
       const result = performAttack(
         player,
         room.players.values(),
         msg.kind,
-        msg.charge,
+        verifiedCharge ?? 0,
         msg.yaw,
         now,
         rewindMs,
@@ -497,7 +503,7 @@ wss.on("connection", (socket) => {
           type: "attack",
           attackerId: player.id,
           kind: msg.kind,
-          charge: Math.max(0, Math.min(1, msg.charge)),
+          charge: verifiedCharge ?? 0,
         });
       if (result)
         broadcast(room, {
@@ -762,6 +768,8 @@ setInterval(() => {
           respawnAt: _r,
           protectionUntil: _p,
           blockStarted: _b,
+          blockCooldownUntil: _bc,
+          chargeStarted: _cs,
           lastWallHit: _w,
           airRecoveryAvailable: _ar,
           lastChat: _c,

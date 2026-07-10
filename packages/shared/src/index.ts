@@ -13,6 +13,10 @@ export const GAME = {
   punchRange: 3.55,
   punchCooldownMs: 340,
   heavyCooldownMs: 850,
+  heavyChargeMs: 1_100,
+  heavyMinChargeMs: 180,
+  blockMaxHoldMs: 900,
+  blockCooldownMs: 650,
   respawnMs: 1_700,
   spawnProtectionMs: 1_600,
 } as const;
@@ -69,6 +73,7 @@ export type PlayerSnapshot = {
   stocksRemaining: number;
   eliminated: boolean;
   blocking: boolean;
+  charging: boolean;
   protected: boolean;
   ready: boolean;
   host: boolean;
@@ -163,6 +168,7 @@ export type ClientMessage =
       jump: boolean;
       dash: boolean;
       blocking: boolean;
+      charging: boolean;
     }
   | {
       type: "attack";

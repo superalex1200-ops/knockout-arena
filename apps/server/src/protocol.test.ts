@@ -21,6 +21,7 @@ describe("client protocol validation", () => {
           jump: false,
           dash: false,
           blocking: false,
+          charging: false,
         }),
       ),
     ).toBeUndefined();

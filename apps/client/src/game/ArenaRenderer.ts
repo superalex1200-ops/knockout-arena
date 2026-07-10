@@ -23,6 +23,7 @@ type Input = {
   jump: boolean;
   dash: boolean;
   block: boolean;
+  charging: boolean;
 };
 export type TutorialAction =
   | "move"
@@ -69,6 +70,7 @@ export class ArenaRenderer {
   private dashEffect = 0;
   private lastDashEffect = Number.NEGATIVE_INFINITY;
   private blockStartedAt = 0;
+  private blockExhausted = false;
   private suppressNextPointerPause = false;
   private lastSpeedTrail = 0;
   private lastHudEmit = 0;
@@ -92,6 +94,7 @@ export class ArenaRenderer {
     jump: false,
     dash: false,
     block: false,
+    charging: false,
   };
 
   constructor(
@@ -508,11 +511,15 @@ export class ArenaRenderer {
         this.onTutorialAction("dash");
       }
       if (matches(e.code, "block") && this.rules.blockEnabled) {
-        if (!this.input.block) {
+        if (this.chargeStart) {
+          this.chargeStart = 0;
+          this.input.charging = false;
+        }
+        if (!this.input.block && !this.blockExhausted) {
           this.blockStartedAt = performance.now();
           this.audio.playGuard();
+          this.input.block = true;
         }
-        this.input.block = true;
         this.onTutorialAction("block");
       }
     };
@@ -526,7 +533,10 @@ export class ArenaRenderer {
       if (matches(e.code, "back")) this.input.back = false;
       if (matches(e.code, "left")) this.input.left = false;
       if (matches(e.code, "right")) this.input.right = false;
-      if (matches(e.code, "block")) this.input.block = false;
+      if (matches(e.code, "block")) {
+        this.input.block = false;
+        this.blockExhausted = false;
+      }
     };
     const blur = () => {
       this.input = {
@@ -537,8 +547,10 @@ export class ArenaRenderer {
         jump: false,
         dash: false,
         block: false,
+        charging: false,
       };
       this.chargeStart = 0;
+      this.blockExhausted = false;
     };
     const move = (e: MouseEvent) => {
       if (document.pointerLockElement !== this.renderer.domElement) return;
@@ -558,8 +570,9 @@ export class ArenaRenderer {
           void this.renderer.domElement.requestPointerLock();
         return;
       }
-      if (e.button === 0) this.attack("light", 0);
-      if (e.button === 2 && this.rules.heavyEnabled) {
+      if (e.button === 0 && !this.input.block && !this.chargeStart)
+        this.attack("light", 0);
+      if (e.button === 2 && this.rules.heavyEnabled && !this.input.block) {
         const now = performance.now();
         if (
           this.lastHeavyPunch === 0 ||
@@ -567,6 +580,7 @@ export class ArenaRenderer {
         ) {
           this.activeFist = 1 - this.activeFist;
           this.chargeStart = now;
+          this.input.charging = true;
         }
       }
     };
@@ -574,9 +588,13 @@ export class ArenaRenderer {
       if (e.button === 2 && this.chargeStart) {
         this.attack(
           "heavy",
-          Math.min(1, (performance.now() - this.chargeStart) / 1100),
+          Math.min(
+            1,
+            (performance.now() - this.chargeStart) / GAME.heavyChargeMs,
+          ),
         );
         this.chargeStart = 0;
+        this.input.charging = false;
       }
     };
     const resize = () => this.resize();
@@ -819,6 +837,13 @@ export class ArenaRenderer {
       moveZ = Number(this.input.back) - Number(this.input.forward);
     const spectating = !!local?.eliminated && this.phase === "playing";
     const hudNow = performance.now();
+    if (
+      this.input.block &&
+      hudNow - this.blockStartedAt >= GAME.blockMaxHoldMs
+    ) {
+      this.input.block = false;
+      this.blockExhausted = true;
+    }
     const flightSpeed = local
       ? Math.hypot(local.velocity.x, local.velocity.y, local.velocity.z)
       : 0;
@@ -850,7 +875,7 @@ export class ArenaRenderer {
           hudNow,
         ),
         heavyCharge: this.chargeStart
-          ? Math.min(1, (hudNow - this.chargeStart) / 1100)
+          ? Math.min(1, (hudNow - this.chargeStart) / GAME.heavyChargeMs)
           : 0,
         blocking: this.input.block,
         parryActive: this.input.block && hudNow - this.blockStartedAt < 190,
@@ -952,8 +977,8 @@ export class ArenaRenderer {
           attack && attackAge < duration
             ? Math.sin((attackAge / duration) * Math.PI)
             : 0;
-        const targetY = p.blocking ? 1.65 : 1.2,
-          targetZ = p.blocking ? -0.48 : -0.15;
+        const targetY = p.blocking ? 1.65 : p.charging ? 1.08 : 1.2,
+          targetZ = p.blocking ? -0.48 : p.charging ? 0.16 : -0.15;
         left.position.lerp(
           new THREE.Vector3(
             -0.48 - (attack?.side === -1 ? attackPhase * 0.08 : 0),
@@ -994,7 +1019,7 @@ export class ArenaRenderer {
         ? Math.sin((this.punchTime / this.punchDuration) * Math.PI)
         : 0;
     const chargeAmount = this.chargeStart
-      ? Math.min(1, (hudNow - this.chargeStart) / 1100)
+      ? Math.min(1, (hudNow - this.chargeStart) / GAME.heavyChargeMs)
       : 0;
     const movementAmount = Math.min(1, Math.hypot(moveX, moveZ));
     const handSway = this.settings.reducedMotion
@@ -1085,6 +1110,7 @@ export class ArenaRenderer {
         jump: spectating ? false : this.input.jump,
         dash: spectating ? false : this.input.dash,
         blocking: spectating ? false : this.input.block,
+        charging: spectating ? false : this.input.charging,
       });
       this.input.jump = false;
       this.input.dash = false;

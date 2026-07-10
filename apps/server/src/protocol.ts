@@ -84,7 +84,8 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
         isFiniteNumber(value.yaw) &&
         typeof value.jump === "boolean" &&
         typeof value.dash === "boolean" &&
-        typeof value.blocking === "boolean"
+        typeof value.blocking === "boolean" &&
+        typeof value.charging === "boolean"
         ? (value as ClientMessage)
         : undefined;
     case "attack":

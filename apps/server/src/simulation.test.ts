@@ -2,13 +2,47 @@ import { describe, expect, it } from "vitest";
 import { GAME } from "@knockout/shared";
 import {
   botNavigationTarget,
+  consumeHeavyCharge,
   createPlayer,
   creditKnockout,
   performAttack,
+  respawn,
   stepPlayer,
 } from "./simulation.js";
 
 describe("authoritative combat simulation", () => {
+  it("fully clears knockback on every respawn", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.knockback = 147;
+    respawn(player, 0, 2_000);
+    expect(player.knockback).toBe(0);
+  });
+
+  it("makes block and heavy charge mutually exclusive", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.input.blocking = true;
+    player.input.charging = true;
+    stepPlayer(player, 1 / 30, 1_000);
+    expect(player.blocking).toBe(false);
+    expect(player.charging).toBe(false);
+  });
+
+  it("limits block hold time and validates heavy charge on the server", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.input.blocking = true;
+    stepPlayer(player, 1 / 30, 1_000);
+    expect(player.blocking).toBe(true);
+    stepPlayer(player, 1 / 30, 1_000 + GAME.blockMaxHoldMs);
+    expect(player.blocking).toBe(false);
+
+    player.input.blocking = false;
+    player.input.charging = true;
+    stepPlayer(player, 1 / 30, 3_000);
+    expect(player.charging).toBe(true);
+    expect(consumeHeavyCharge(player, 1, 4_100)).toBe(1);
+    expect(player.charging).toBe(false);
+  });
+
   it("applies a valid hit and scales knockback", () => {
     const attacker = createPlayer("a", "Alpha", 0);
     const victim = createPlayer("b", "Bravo", 0);

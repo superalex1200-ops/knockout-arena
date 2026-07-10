@@ -52,6 +52,7 @@ first.on("message", (raw) => {
         jump: false,
         dash: false,
         blocking: false,
+        charging: false,
       }),
     );
   }
@@ -104,6 +105,7 @@ function connectAgain() {
             jump: false,
             dash: true,
             blocking: false,
+            charging: false,
           }),
         );
     }

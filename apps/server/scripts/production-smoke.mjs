@@ -93,6 +93,102 @@ async function verifyJoinError(payload, expectedCode) {
   });
 }
 
+async function verifyDefenseExploitIsClosed() {
+  await new Promise((resolveSocket, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const roomCode = `D${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    let playerId = "";
+    let stage = 0;
+    const timeout = setTimeout(
+      () => reject(new Error("Defense exploit regression timed out")),
+      6_000,
+    );
+    socket.on("open", () =>
+      socket.send(
+        JSON.stringify({
+          type: "join",
+          name: "DefenseSmoke",
+          roomCode,
+          mode: "training",
+          protocolVersion: 1,
+          createRoom: true,
+        }),
+      ),
+    );
+    socket.on("message", (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === "welcome") playerId = message.playerId;
+      if (message.type === "snapshot" && playerId) {
+        const local = message.players.find((player) => player.id === playerId);
+        if (stage === 0 && local) {
+          stage = 1;
+          socket.send(
+            JSON.stringify({
+              type: "input",
+              sequence: 1,
+              moveX: 0,
+              moveZ: 0,
+              yaw: 0,
+              jump: false,
+              dash: false,
+              blocking: true,
+              charging: true,
+            }),
+          );
+        } else if (
+          stage === 1 &&
+          local &&
+          local.lastProcessedInput >= 1 &&
+          !local.blocking &&
+          !local.charging
+        ) {
+          stage = 2;
+          socket.send(
+            JSON.stringify({
+              type: "input",
+              sequence: 2,
+              moveX: 0,
+              moveZ: 0,
+              yaw: 0,
+              jump: false,
+              dash: false,
+              blocking: false,
+              charging: true,
+            }),
+          );
+          setTimeout(
+            () =>
+              socket.send(
+                JSON.stringify({
+                  type: "attack",
+                  kind: "heavy",
+                  charge: 1,
+                  yaw: 0,
+                  clientTime: Date.now(),
+                }),
+              ),
+            300,
+          );
+        }
+      }
+      if (message.type === "attack" && message.attackerId === playerId) {
+        try {
+          assert.ok(
+            message.charge < 0.5,
+            `Server trusted forged charge ${message.charge}`,
+          );
+          clearTimeout(timeout);
+          socket.close();
+          resolveSocket();
+        } catch (error) {
+          reject(error);
+        }
+      }
+    });
+    socket.on("error", reject);
+  });
+}
+
 try {
   await waitForHealth();
   const rootResponse = await fetch(`${origin}/`);
@@ -134,6 +230,7 @@ try {
     },
     "ROOM_NOT_FOUND",
   );
+  await verifyDefenseExploitIsClosed();
   console.log(`Production smoke passed on one HTTP/WebSocket origin (${port})`);
 } finally {
   server.kill("SIGTERM");

@@ -60,6 +60,7 @@ clients.forEach((client, index) => {
             jump: false,
             dash: false,
             blocking: false,
+            charging: false,
           }),
         );
         client.send(
@@ -72,6 +73,7 @@ clients.forEach((client, index) => {
             jump: false,
             dash: false,
             blocking: false,
+            charging: false,
           }),
         );
       }

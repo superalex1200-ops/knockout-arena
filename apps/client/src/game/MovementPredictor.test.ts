@@ -18,6 +18,7 @@ const snapshot = (x: number, z: number, ack = -1): PlayerSnapshot => ({
   eliminated: false,
   lastProcessedInput: ack,
   blocking: false,
+  charging: false,
   protected: false,
   ready: false,
   host: true,

@@ -18,6 +18,7 @@ const player = (id: string, x: number, z: number): PlayerSnapshot => ({
   stocksRemaining: 3,
   eliminated: false,
   blocking: false,
+  charging: false,
   protected: false,
   ready: false,
   host: false,
