@@ -406,17 +406,17 @@ export function performAttack(
     knockbackForce(target.knockback, safeCharge) *
     defended *
     Math.max(0.5, Math.min(2, knockbackMultiplier)) *
-    (finisher ? 1.8 : 1);
+    (finisher ? 1.5 : 1);
   target.velocity.x += fx * force;
   target.velocity.z += fz * force;
   target.velocity.y = Math.max(
     target.velocity.y,
-    finisher ? 10.5 : 3.6 + force * 0.18,
+    finisher ? 9 : 3.4 + force * 0.16,
   );
   target.grounded = false;
   target.knockback = Math.min(
     300,
-    target.knockback + (kind === "heavy" ? 17 + safeCharge * 8 : 10) * defended,
+    target.knockback + (kind === "heavy" ? 13 + safeCharge * 5 : 10) * defended,
   );
   target.lastAttacker = attacker.id;
   target.damageContributors.set(attacker.id, now);

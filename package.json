@@ -10,11 +10,17 @@
     "test": "pnpm -r test",
     "test:production": "node apps/server/scripts/production-smoke.mjs",
     "typecheck": "pnpm -r typecheck",
+    "lint": "eslint apps packages --max-warnings=0",
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "esbuild": "^0.28.1",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.7.0",
     "prettier": "^3.6.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.63.0"
   }
 }

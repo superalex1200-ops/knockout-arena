@@ -37,6 +37,7 @@ export function Game({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [connected, setConnected] = useState(false);
+  const [joinError, setJoinError] = useState<string>();
   const [room, setRoom] = useState(roomCode);
   const [me, setMe] = useState<PlayerSnapshot>();
   const [notice, setNotice] = useState("VERBINDUNG WIRD HERGESTELLT …");
@@ -44,6 +45,7 @@ export function Game({
     mode === "private" ? "lobby" : "playing",
   );
   const [phaseEndsAt, setPhaseEndsAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const [players, setPlayers] = useState<PlayerSnapshot[]>([]);
   const socketRef = useRef<GameSocket | undefined>(undefined);
   const reconnectTokenRef = useRef("");
@@ -83,9 +85,14 @@ export function Game({
       socket,
       (message: ServerMessage, local?: PlayerSnapshot) => {
         if (message.type === "welcome") {
+          setJoinError(undefined);
           setRoom(message.roomCode);
           reconnectTokenRef.current = message.reconnectToken;
           playerIdRef.current = message.playerId;
+        }
+        if (message.type === "joinError") {
+          setJoinError(message.message);
+          setNotice("BEITRITT FEHLGESCHLAGEN");
         }
         if (message.type === "snapshot") {
           setPhase(message.phase);
@@ -272,29 +279,17 @@ export function Game({
     rendererRef.current?.setSpectatorTarget(next.id);
   };
   useEffect(() => {
-    if (!me?.eliminated || phase !== "playing") {
-      setSpectatorTargetId("");
-      rendererRef.current?.setSpectatorTarget("");
-      return;
-    }
-    const next = players.find(
-      (player) => !player.eliminated && !player.bot && player.id !== me.id,
-    );
-    if (
-      next &&
-      !players.some(
-        (player) => player.id === spectatorTargetId && !player.eliminated,
-      )
-    ) {
-      setSpectatorTargetId(next.id);
-      rendererRef.current?.setSpectatorTarget(next.id);
-    }
-  }, [me?.eliminated, me?.id, phase, players, spectatorTargetId]);
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const remainingSeconds = Math.max(
-    0,
-    Math.ceil((phaseEndsAt - Date.now()) / 1000),
-  );
+  useEffect(() => {
+    rendererRef.current?.setSpectatorTarget(
+      me?.eliminated && phase === "playing" ? (spectatorTarget?.id ?? "") : "",
+    );
+  }, [me?.eliminated, phase, spectatorTarget?.id]);
+
+  const remainingSeconds = Math.max(0, Math.ceil((phaseEndsAt - now) / 1000));
   const clock = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
   const stockBattle = mode === "private" && rules.gameMode === "stock";
   const teamBattle = mode === "private" && rules.gameMode === "team";
@@ -430,6 +425,18 @@ export function Game({
         {formatKey(settings.bindings.block)} BLOCK
       </div>
       <div className="lock-hint">KLICKEN, UM DIE MAUS ZU FANGEN</div>
+      {joinError && (
+        <div className="phase-overlay join-error" role="alert">
+          <section>
+            <p>LOBBY NICHT VERFÜGBAR</p>
+            <h2>BEITRITT FEHLGESCHLAGEN</h2>
+            <small>{joinError}</small>
+            <button className="ready" onClick={onExit}>
+              ZURÜCK ZUM HAUPTMENÜ
+            </button>
+          </section>
+        </div>
+      )}
       {phase === "lobby" && (
         <div className="phase-overlay">
           <section className="lobby-panel">
@@ -502,9 +509,7 @@ export function Game({
         </div>
       )}
       {phase === "countdown" && (
-        <div className="countdown">
-          {Math.max(1, Math.ceil((phaseEndsAt - Date.now()) / 1000))}
-        </div>
+        <div className="countdown">{Math.max(1, remainingSeconds)}</div>
       )}
       {me?.eliminated && phase === "playing" && (
         <div className="spectator-bar">
@@ -565,6 +570,9 @@ export function Game({
                 ))}
             </div>
             <small>Rückkehr zur Lobby in wenigen Sekunden …</small>
+            <button className="invite" onClick={onExit}>
+              ZUM HAUPTMENÜ
+            </button>
           </section>
         </div>
       )}

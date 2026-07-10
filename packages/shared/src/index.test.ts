@@ -8,6 +8,7 @@ describe("knockbackForce", () => {
   });
   it("rewards a charged heavy punch", () => {
     expect(knockbackForce(50, 1)).toBeGreaterThan(knockbackForce(50));
+    expect(knockbackForce(50, 1)).toBeLessThan(knockbackForce(50) * 1.8);
   });
   it("makes high damage meaningfully more dangerous", () => {
     expect(knockbackForce(100)).toBeGreaterThan(knockbackForce(0) * 2.3);

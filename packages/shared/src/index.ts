@@ -160,7 +160,7 @@ export type ClientMessage =
 export function knockbackForce(percent: number, heavyCharge = 0): number {
   const curved = 1 + 1.9 * (1 - Math.exp(-Math.max(0, percent) / 65));
   const finisher = 1 + Math.min(0.25, Math.max(0, percent - 85) / 90);
-  return (heavyCharge > 0 ? 12 + heavyCharge * 8.5 : 8.2) * curved * finisher;
+  return (heavyCharge > 0 ? 9.2 + heavyCharge * 3.8 : 8.2) * curved * finisher;
 }
 
 export function resolvePredictedWalls(

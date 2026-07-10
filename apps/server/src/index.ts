@@ -24,6 +24,7 @@ import {
   stepPlayer,
   type SimPlayer,
 } from "./simulation.js";
+import { parseClientMessage } from "./protocol.js";
 
 type Client = {
   socket: WebSocket;
@@ -107,9 +108,10 @@ function quickRoom(): Room {
       [...room.players.values()].filter((player) => !player.bot).length < 8,
   );
   if (available) return available;
-  let code = "";
-  do code = `Q${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  while (rooms.has(code));
+  let code: string;
+  do {
+    code = `Q${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+  } while (rooms.has(code));
   const room = roomFor(code);
   room.mode = "quick";
   return room;
@@ -176,7 +178,11 @@ const http = createServer(async (req, res) => {
     res.end();
   }
 });
-const wss = new WebSocketServer({ server: http, path: "/ws" });
+const wss = new WebSocketServer({
+  server: http,
+  path: "/ws",
+  maxPayload: 16 * 1024,
+});
 const liveSockets = new WeakSet<WebSocket>();
 wss.on("connection", (socket) => {
   liveSockets.add(socket);
@@ -197,12 +203,8 @@ heartbeatTimer.unref();
 wss.on("connection", (socket) => {
   const client: Client = { socket };
   socket.on("message", (raw) => {
-    let msg: ClientMessage;
-    try {
-      msg = JSON.parse(raw.toString()) as ClientMessage;
-    } catch {
-      return;
-    }
+    const msg: ClientMessage | undefined = parseClientMessage(raw.toString());
+    if (!msg) return;
     if (msg.type === "join" && !client.player) {
       const reconnect = msg.reconnectToken
         ? reconnects.get(msg.reconnectToken)
