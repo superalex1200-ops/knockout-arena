@@ -11,6 +11,7 @@
     "test:integration": "node scripts/multiplayer-smoke.mjs",
     "test:reconnect": "node scripts/reconnect-smoke.mjs",
     "test:training": "node scripts/training-bot-smoke.mjs",
+    "test:defense": "node scripts/defense-smoke.mjs",
     "test:stocks": "node scripts/stock-smoke.mjs"
   },
   "dependencies": {
