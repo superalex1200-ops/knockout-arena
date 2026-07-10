@@ -41,16 +41,19 @@ async function verifyWebSocket() {
       () => reject(new Error("Same-origin WebSocket timed out")),
       8_000,
     );
-    socket.on("open", () =>
+    socket.on("open", () => {
+      socket.send("null");
       socket.send(
         JSON.stringify({
           type: "join",
           name: "ProductionSmoke",
           roomCode: "PRODSM",
           mode: "training",
+          protocolVersion: 1,
+          createRoom: true,
         }),
-      ),
-    );
+      );
+    });
     socket.on("message", (raw) => {
       const message = JSON.parse(raw.toString());
       if (
@@ -61,6 +64,30 @@ async function verifyWebSocket() {
       clearTimeout(timeout);
       socket.close();
       resolveSocket();
+    });
+    socket.on("error", reject);
+  });
+}
+
+async function verifyJoinError(payload, expectedCode) {
+  await new Promise((resolveSocket, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const timeout = setTimeout(
+      () => reject(new Error(`Expected join error ${expectedCode}`)),
+      3_000,
+    );
+    socket.on("open", () => socket.send(JSON.stringify(payload)));
+    socket.on("message", (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type !== "joinError") return;
+      try {
+        assert.equal(message.code, expectedCode);
+        clearTimeout(timeout);
+        socket.close();
+        resolveSocket();
+      } catch (error) {
+        reject(error);
+      }
     });
     socket.on("error", reject);
   });
@@ -86,6 +113,27 @@ try {
   const inviteResponse = await fetch(`${origin}/invite/ABC123`);
   assert.equal(inviteResponse.status, 200, "SPA fallback route failed");
   await verifyWebSocket();
+  await verifyJoinError(
+    {
+      type: "join",
+      name: "OldClient",
+      roomCode: "OLD123",
+      mode: "private",
+      protocolVersion: 0,
+      createRoom: true,
+    },
+    "VERSION_MISMATCH",
+  );
+  await verifyJoinError(
+    {
+      type: "join",
+      name: "MissingRoom",
+      roomCode: "NOPE99",
+      mode: "private",
+      protocolVersion: 1,
+    },
+    "ROOM_NOT_FOUND",
+  );
   console.log(`Production smoke passed on one HTTP/WebSocket origin (${port})`);
 } finally {
   server.kill("SIGTERM");

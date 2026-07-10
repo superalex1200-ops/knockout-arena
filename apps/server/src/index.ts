@@ -8,6 +8,9 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   DEFAULT_MATCH_RULES,
   GAME,
+  PROTOCOL_VERSION,
+  isValidLobbyCode,
+  normalizeLobbyCode,
   type ClientMessage,
   type MatchMode,
   type MatchPhase,
@@ -75,11 +78,7 @@ function broadcast(room: Room, message: ServerMessage): void {
   for (const c of room.clients) send(c.socket, message);
 }
 function roomFor(code: string): Room {
-  const clean =
-    code
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "")
-      .slice(0, 6) || "QUICK";
+  const clean = normalizeLobbyCode(code) || "QUICK";
   let room = rooms.get(clean);
   if (!room) {
     room = {
@@ -206,15 +205,43 @@ wss.on("connection", (socket) => {
     const msg: ClientMessage | undefined = parseClientMessage(raw.toString());
     if (!msg) return;
     if (msg.type === "join" && !client.player) {
+      if (msg.protocolVersion !== PROTOCOL_VERSION) {
+        send(socket, {
+          type: "joinError",
+          code: "VERSION_MISMATCH",
+          message: "Spielversion veraltet. Bitte die Seite neu laden.",
+        });
+        return;
+      }
       const reconnect = msg.reconnectToken
         ? reconnects.get(msg.reconnectToken)
         : undefined;
-      const room =
-        reconnect && reconnect.expiresAt > Date.now()
-          ? reconnect.room
-          : msg.mode === "quick"
-            ? quickRoom()
-            : roomFor(msg.roomCode);
+      let room: Room;
+      if (reconnect && reconnect.expiresAt > Date.now()) room = reconnect.room;
+      else if (msg.mode === "quick") room = quickRoom();
+      else {
+        const code = normalizeLobbyCode(msg.roomCode);
+        if (!isValidLobbyCode(code)) {
+          send(socket, {
+            type: "joinError",
+            code: "INVALID_CODE",
+            message:
+              "Der Lobbycode muss aus 4 bis 6 Buchstaben oder Zahlen bestehen.",
+          });
+          return;
+        }
+        const existing = rooms.get(code);
+        if (msg.mode === "private" && !msg.createRoom && !existing) {
+          send(socket, {
+            type: "joinError",
+            code: "ROOM_NOT_FOUND",
+            message:
+              "Diese Lobby wurde nicht gefunden. Prüfe den Code und versuche es erneut.",
+          });
+          return;
+        }
+        room = existing ?? roomFor(code);
+      }
       if (
         reconnect &&
         reconnect.expiresAt > Date.now() &&

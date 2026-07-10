@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GAME } from "@knockout/shared";
 import {
   botNavigationTarget,
   createPlayer,
@@ -77,6 +78,30 @@ describe("authoritative combat simulation", () => {
     player.position = { x: 20, y: -8.9, z: 0 };
     player.velocity.y = -4;
     expect(stepPlayer(player, 0.1, 2_000).knockedOut).toBe(true);
+  });
+
+  it("does not let an air dash recover through the underside of the arena", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.position = { x: 15.2, y: 0.9, z: 0 };
+    player.velocity = { x: 0, y: 0.8, z: 0 };
+    player.grounded = false;
+    player.airRecoveryAvailable = true;
+    player.input = { ...player.input, moveX: -1, dash: true };
+    stepPlayer(player, 0.1, 2_000);
+    expect(player.position.x).toBeLessThan(GAME.arenaHalfSize);
+    expect(player.position.y).toBeLessThan(1.1);
+    expect(player.velocity.y).toBeLessThanOrEqual(0);
+    expect(player.grounded).toBe(false);
+  });
+
+  it("removes grounded state immediately after leaving the platform", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.position = { x: GAME.arenaHalfSize - 0.05, y: 1.1, z: 0 };
+    player.velocity = { x: 8, y: 0, z: 0 };
+    player.input = { ...player.input, moveX: 1 };
+    stepPlayer(player, 0.1, 2_000);
+    expect(player.position.x).toBeGreaterThan(GAME.arenaHalfSize);
+    expect(player.grounded).toBe(false);
   });
 
   it("resolves a high-speed wall impact and emits wall-hit data", () => {

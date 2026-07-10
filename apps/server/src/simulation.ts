@@ -232,21 +232,28 @@ export function stepPlayer(
     ) * dt;
   const substeps = Math.min(10, Math.max(1, Math.ceil(travel / 0.28)));
   let wallHit: StepResult["wallHit"];
+  let floorContact = false;
   for (let step = 0; step < substeps; step++) {
+    const previousY = player.position.y;
     player.position.x += (player.velocity.x * dt) / substeps;
     player.position.y += (player.velocity.y * dt) / substeps;
     player.position.z += (player.velocity.z * dt) / substeps;
+    const overPlatform =
+      Math.abs(player.position.x) < GAME.arenaHalfSize &&
+      Math.abs(player.position.z) < GAME.arenaHalfSize;
+    if (overPlatform && previousY >= 1.1 && player.position.y <= 1.1) {
+      player.position.y = 1.1;
+      player.velocity.y = 0;
+      floorContact = true;
+      player.airRecoveryAvailable = true;
+    } else if (overPlatform && previousY < 1.1 && player.velocity.y > 0) {
+      // Prevent an air dash from phasing upward through the solid arena floor.
+      player.position.y = Math.min(player.position.y, 1.099);
+      player.velocity.y = 0;
+    }
     if (now >= player.finisherUntil) wallHit ??= resolveWalls(player, now);
   }
-  const onPlatform =
-    Math.abs(player.position.x) < GAME.arenaHalfSize &&
-    Math.abs(player.position.z) < GAME.arenaHalfSize;
-  if (onPlatform && player.position.y <= 1.1) {
-    player.position.y = 1.1;
-    player.velocity.y = 0;
-    player.grounded = true;
-    player.airRecoveryAvailable = true;
-  }
+  player.grounded = floorContact;
   player.positionHistory.push({ time: now, position: { ...player.position } });
   while (
     player.positionHistory.length > 2 &&

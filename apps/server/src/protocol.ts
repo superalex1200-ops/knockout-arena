@@ -48,7 +48,10 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
       if (
         typeof value.name !== "string" ||
         typeof value.roomCode !== "string" ||
+        !Number.isSafeInteger(value.protocolVersion) ||
         !["quick", "private", "training"].includes(String(value.mode)) ||
+        (value.createRoom !== undefined &&
+          typeof value.createRoom !== "boolean") ||
         (value.reconnectToken !== undefined &&
           typeof value.reconnectToken !== "string")
       )

@@ -35,6 +35,8 @@ clients.forEach((client, index) => {
         name: `Test${index + 1}`,
         roomCode,
         mode: "private",
+        protocolVersion: 1,
+        createRoom: index === 0,
       }),
     ),
   );

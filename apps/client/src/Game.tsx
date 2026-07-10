@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   DEFAULT_MATCH_RULES,
+  PROTOCOL_VERSION,
   type MatchMode,
   type MatchPhase,
   type MatchRules,
@@ -20,6 +21,7 @@ type Props = {
   name: string;
   roomCode: string;
   mode: MatchMode;
+  createRoom: boolean;
   settings: GameSettings;
   onSettingsChange: (settings: GameSettings) => void;
   onMatchComplete: (entry: MatchHistoryEntry) => void;
@@ -30,6 +32,7 @@ export function Game({
   name,
   roomCode,
   mode,
+  createRoom,
   settings,
   onSettingsChange,
   onMatchComplete,
@@ -53,6 +56,9 @@ export function Game({
   const recordedMatchRef = useRef("");
   const [copied, setCopied] = useState(false);
   const [chatDraft, setChatDraft] = useState("");
+  const [matchChatOpen, setMatchChatOpen] = useState(false);
+  const [scoreboardOpen, setScoreboardOpen] = useState(false);
+  const matchChatInputRef = useRef<HTMLInputElement>(null);
   const [chat, setChat] = useState<
     Array<{ playerId: string; name: string; text: string; sentAt: number }>
   >([]);
@@ -210,6 +216,13 @@ export function Game({
         ),
       () => setPaused(true),
       setCombatHud,
+      (action, active) => {
+        if (action === "scoreboard") setScoreboardOpen(active);
+        if (action === "chat" && active) {
+          setMatchChatOpen(true);
+          window.setTimeout(() => matchChatInputRef.current?.focus());
+        }
+      },
     );
     rendererRef.current = renderer;
     socket.connect(
@@ -222,6 +235,8 @@ export function Game({
             name,
             roomCode,
             mode,
+            protocolVersion: PROTOCOL_VERSION,
+            createRoom,
             reconnectToken: reconnectTokenRef.current || undefined,
           });
       },
@@ -237,7 +252,7 @@ export function Game({
       renderer.dispose();
       socket.close();
     };
-  }, [mode, name, onMatchComplete, roomCode, settings]);
+  }, [createRoom, mode, name, onMatchComplete, roomCode, settings]);
 
   const copyInvite = async () => {
     const invite = `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`;
@@ -247,9 +262,10 @@ export function Game({
   };
   const sendChat = () => {
     const text = chatDraft.trim();
-    if (!text) return;
-    socketRef.current?.send({ type: "chat", text });
+    if (text) socketRef.current?.send({ type: "chat", text });
     setChatDraft("");
+    setMatchChatOpen(false);
+    window.setTimeout(() => rendererRef.current?.capturePointer());
   };
   const resume = () => {
     setPauseSettings(false);
@@ -425,6 +441,68 @@ export function Game({
         {formatKey(settings.bindings.block)} BLOCK
       </div>
       <div className="lock-hint">KLICKEN, UM DIE MAUS ZU FANGEN</div>
+      {scoreboardOpen && phase === "playing" && (
+        <div className="scoreboard-overlay">
+          <p>SCOREBOARD</p>
+          <div className="roster">
+            {[...players]
+              .filter((player) => !player.bot)
+              .sort((a, b) => b.score - a.score || a.falls - b.falls)
+              .map((player, index) => (
+                <span key={player.id}>
+                  <i>#{index + 1}</i>
+                  {player.team && (
+                    <em className={`team ${player.team}`}>
+                      {player.team === "red" ? "ROT" : "BLAU"}
+                    </em>
+                  )}
+                  {player.name}
+                  <b>
+                    {player.score} KOs · {player.assists} A · {player.falls} F
+                  </b>
+                </span>
+              ))}
+          </div>
+          <small>TAB LOSLASSEN ZUM SCHLIESSEN</small>
+        </div>
+      )}
+      {matchChatOpen && phase === "playing" && (
+        <div className="match-chat">
+          <div className="chat-log">
+            {chat.slice(-6).map((message) => (
+              <div key={`${message.playerId}-${message.sentAt}`}>
+                <b>{message.name}</b>
+                <span>{message.text}</span>
+              </div>
+            ))}
+          </div>
+          <form
+            className="chat-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              sendChat();
+            }}
+          >
+            <input
+              ref={matchChatInputRef}
+              aria-label="Match-Nachricht"
+              maxLength={120}
+              placeholder="NACHRICHT …"
+              value={chatDraft}
+              onChange={(event) => setChatDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.code !== "Escape") return;
+                event.preventDefault();
+                event.stopPropagation();
+                setChatDraft("");
+                setMatchChatOpen(false);
+                window.setTimeout(() => rendererRef.current?.capturePointer());
+              }}
+            />
+            <button type="submit">SENDEN</button>
+          </form>
+        </div>
+      )}
       {joinError && (
         <div className="phase-overlay join-error" role="alert">
           <section>
@@ -440,7 +518,7 @@ export function Game({
       {phase === "lobby" && (
         <div className="phase-overlay">
           <section className="lobby-panel">
-            <p>PRIVATE LOBBY</p>
+            <p>{mode === "quick" ? "SPIELERSUCHE" : "PRIVATE LOBBY"}</p>
             <h2>{room}</h2>
             <div className="roster">
               {players
@@ -458,52 +536,64 @@ export function Game({
                   </span>
                 ))}
             </div>
-            <PrivateRules
-              rules={rules}
-              host={!!me?.host}
-              update={updateRules}
-            />
-            <div className="chat-log">
-              {chat.length === 0 ? (
-                <small>Noch keine Nachrichten</small>
-              ) : (
-                chat.map((message) => (
-                  <div key={`${message.playerId}-${message.sentAt}`}>
-                    <b>{message.name}</b>
-                    <span>{message.text}</span>
-                  </div>
-                ))
-              )}
-            </div>
-            <form
-              className="chat-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                sendChat();
-              }}
-            >
-              <input
-                aria-label="Lobby-Nachricht"
-                maxLength={120}
-                placeholder="NACHRICHT …"
-                value={chatDraft}
-                onChange={(event) => setChatDraft(event.target.value)}
+            {mode === "private" && (
+              <PrivateRules
+                rules={rules}
+                host={!!me?.host}
+                update={updateRules}
               />
-              <button type="submit">SENDEN</button>
-            </form>
-            <button
-              className={me?.ready ? "ready active" : "ready"}
-              onClick={() =>
-                socketRef.current?.send({ type: "ready", ready: !me?.ready })
-              }
-            >
-              {me?.ready ? "NICHT BEREIT" : "BEREIT"}
-            </button>
-            <button className="invite" onClick={() => void copyInvite()}>
-              {copied ? "LINK KOPIERT" : "EINLADUNGSLINK KOPIEREN"}
-            </button>
+            )}
+            {mode === "private" && (
+              <div className="chat-log">
+                {chat.length === 0 ? (
+                  <small>Noch keine Nachrichten</small>
+                ) : (
+                  chat.map((message) => (
+                    <div key={`${message.playerId}-${message.sentAt}`}>
+                      <b>{message.name}</b>
+                      <span>{message.text}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+            {mode === "private" && (
+              <form
+                className="chat-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  sendChat();
+                }}
+              >
+                <input
+                  aria-label="Lobby-Nachricht"
+                  maxLength={120}
+                  placeholder="NACHRICHT …"
+                  value={chatDraft}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                />
+                <button type="submit">SENDEN</button>
+              </form>
+            )}
+            {mode === "private" && (
+              <button
+                className={me?.ready ? "ready active" : "ready"}
+                onClick={() =>
+                  socketRef.current?.send({ type: "ready", ready: !me?.ready })
+                }
+              >
+                {me?.ready ? "NICHT BEREIT" : "BEREIT"}
+              </button>
+            )}
+            {mode === "private" && (
+              <button className="invite" onClick={() => void copyInvite()}>
+                {copied ? "LINK KOPIERT" : "EINLADUNGSLINK KOPIEREN"}
+              </button>
+            )}
             <small>
-              Stock Battle startet, sobald mindestens zwei Spieler bereit sind.
+              {mode === "quick"
+                ? "Warte auf einen Gegner – du kannst jederzeit verlassen."
+                : "Stock Battle startet, sobald mindestens zwei Spieler bereit sind."}
             </small>
           </section>
         </div>

@@ -45,6 +45,8 @@ describe("client protocol validation", () => {
           name: "Rookie",
           roomCode: "ABC123",
           mode: "private",
+          protocolVersion: 1,
+          createRoom: true,
         }),
       ),
     ).toMatchObject({ type: "join", roomCode: "ABC123" });

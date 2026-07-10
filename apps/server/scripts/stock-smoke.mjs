@@ -32,6 +32,8 @@ clients.forEach((client, index) => {
         name: `Stock${index + 1}`,
         roomCode,
         mode: "private",
+        protocolVersion: 1,
+        createRoom: index === 0,
       }),
     ),
   );

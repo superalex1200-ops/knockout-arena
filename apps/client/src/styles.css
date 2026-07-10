@@ -91,6 +91,43 @@
 .join-error {
   z-index: 30;
 }
+.scoreboard-overlay {
+  position: fixed;
+  top: 13%;
+  left: 50%;
+  z-index: 18;
+  width: min(620px, calc(100vw - 32px));
+  padding: 22px;
+  transform: translateX(-50%);
+  background: #080c1ef2;
+  border: 1px solid #59648188;
+  box-shadow: 0 25px 80px #000b;
+}
+.scoreboard-overlay > p {
+  margin: 0;
+  color: #58e9ff;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.25em;
+}
+.scoreboard-overlay > small {
+  display: block;
+  color: #818ba8;
+  text-align: center;
+}
+.match-chat {
+  position: fixed;
+  bottom: 72px;
+  left: 24px;
+  z-index: 20;
+  width: min(410px, calc(100vw - 48px));
+  padding: 12px;
+  background: #080c1ef2;
+  border: 1px solid #59648188;
+}
+.match-chat .chat-log {
+  max-height: 180px;
+}
 .join-error section {
   border-color: #ff477899;
 }

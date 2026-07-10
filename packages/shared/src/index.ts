@@ -16,6 +16,7 @@ export const GAME = {
   respawnMs: 1_700,
   spawnProtectionMs: 1_600,
 } as const;
+export const PROTOCOL_VERSION = 1;
 
 export const PLAYER_RADIUS = 0.55;
 export const ARENA_WALLS = [
@@ -84,7 +85,12 @@ export type ServerMessage =
     }
   | {
       type: "joinError";
-      code: "ROOM_FULL" | "MATCH_STARTED";
+      code:
+        | "ROOM_FULL"
+        | "ROOM_NOT_FOUND"
+        | "INVALID_CODE"
+        | "MATCH_STARTED"
+        | "VERSION_MISMATCH";
       message: string;
     }
   | {
@@ -132,6 +138,8 @@ export type ClientMessage =
       name: string;
       roomCode: string;
       mode: MatchMode;
+      protocolVersion: number;
+      createRoom?: boolean;
       reconnectToken?: string;
     }
   | { type: "ready"; ready: boolean }
@@ -161,6 +169,17 @@ export function knockbackForce(percent: number, heavyCharge = 0): number {
   const curved = 1 + 1.9 * (1 - Math.exp(-Math.max(0, percent) / 65));
   const finisher = 1 + Math.min(0.25, Math.max(0, percent - 85) / 90);
   return (heavyCharge > 0 ? 9.2 + heavyCharge * 3.8 : 8.2) * curved * finisher;
+}
+
+export function normalizeLobbyCode(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
+export function isValidLobbyCode(value: string): boolean {
+  return /^[A-Z0-9]{4,6}$/.test(value);
 }
 
 export function resolvePredictedWalls(

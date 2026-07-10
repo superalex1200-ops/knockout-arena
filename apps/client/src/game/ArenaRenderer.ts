@@ -35,6 +35,7 @@ export type TutorialAction =
   | "block"
   | "knockback"
   | "knockout";
+export type GameUiAction = "scoreboard" | "chat";
 
 export class ArenaRenderer {
   private scene = new THREE.Scene();
@@ -63,6 +64,7 @@ export class ArenaRenderer {
   private dashEffect = 0;
   private lastDashEffect = Number.NEGATIVE_INFINITY;
   private blockStartedAt = 0;
+  private suppressNextPointerPause = false;
   private lastHudEmit = 0;
   private rules = { ...DEFAULT_MATCH_RULES };
   private impactKick = 0;
@@ -92,6 +94,10 @@ export class ArenaRenderer {
     private onTutorialAction: (action: TutorialAction) => void = () => {},
     private onPause: () => void = () => {},
     private onCombatHud: (state: CombatHudState) => void = () => {},
+    private onUiAction: (
+      action: GameUiAction,
+      active: boolean,
+    ) => void = () => {},
   ) {
     this.audio = new AudioSystem(settings.volume);
     this.renderer.setPixelRatio(
@@ -408,12 +414,37 @@ export class ArenaRenderer {
         this.settings.bindings.dash === "ShiftLeft" &&
         code === "ShiftRight");
     const down = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      )
+        return;
+      if (e.code === "Tab") {
+        e.preventDefault();
+        this.onUiAction("scoreboard", true);
+        return;
+      }
+      if (e.code === "Enter" && this.phase === "playing") {
+        e.preventDefault();
+        blur();
+        this.suppressNextPointerPause = true;
+        if (document.pointerLockElement) document.exitPointerLock();
+        this.onUiAction("chat", true);
+        return;
+      }
       if (e.code === "Escape") {
         blur();
         if (document.pointerLockElement) document.exitPointerLock();
         this.onPause();
         return;
       }
+      if (
+        (
+          ["forward", "back", "left", "right", "jump", "dash", "block"] as const
+        ).some((action) => matches(e.code, action))
+      )
+        e.preventDefault();
       if (matches(e.code, "forward")) this.input.forward = true;
       if (matches(e.code, "back")) this.input.back = true;
       if (matches(e.code, "left")) this.input.left = true;
@@ -443,6 +474,11 @@ export class ArenaRenderer {
       }
     };
     const up = (e: KeyboardEvent) => {
+      if (e.code === "Tab") {
+        e.preventDefault();
+        this.onUiAction("scoreboard", false);
+        return;
+      }
       if (matches(e.code, "forward")) this.input.forward = false;
       if (matches(e.code, "back")) this.input.back = false;
       if (matches(e.code, "left")) this.input.left = false;
@@ -502,7 +538,9 @@ export class ArenaRenderer {
       else if (hadPointerLock) {
         hadPointerLock = false;
         blur();
-        this.onPause();
+        if (this.suppressNextPointerPause)
+          this.suppressNextPointerPause = false;
+        else this.onPause();
       }
     };
     window.addEventListener("keydown", down);

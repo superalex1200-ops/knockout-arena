@@ -48,6 +48,8 @@ Docker Compose startet nur noch einen gemeinsamen Game-Service. Damit entspricht
 - Linke Maustaste: leichter Schlag
 - Rechte Maustaste halten und loslassen: Heavy
 - Q: Block; die ersten 190 ms sind das Paradefenster
+- Tab halten: Scoreboard anzeigen
+- Enter: Match-Chat öffnen
 - Escape: Pausemenü
 
 Die Bewegungstasten lassen sich in den Einstellungen neu belegen.

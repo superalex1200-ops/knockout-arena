@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { knockbackForce, segmentCrossesArenaWall } from "./index";
+import {
+  isValidLobbyCode,
+  knockbackForce,
+  normalizeLobbyCode,
+  segmentCrossesArenaWall,
+} from "./index";
 
 describe("knockbackForce", () => {
   it("grows smoothly and stays controlled", () => {
@@ -12,6 +17,14 @@ describe("knockbackForce", () => {
   });
   it("makes high damage meaningfully more dangerous", () => {
     expect(knockbackForce(100)).toBeGreaterThan(knockbackForce(0) * 2.3);
+  });
+});
+
+describe("lobby codes", () => {
+  it("normalizes shareable codes and rejects incomplete values", () => {
+    expect(normalizeLobbyCode(" ab-c12! ")).toBe("ABC12");
+    expect(isValidLobbyCode("ABC12")).toBe(true);
+    expect(isValidLobbyCode("A1")).toBe(false);
   });
 });
 
