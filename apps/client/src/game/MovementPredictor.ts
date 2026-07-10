@@ -33,9 +33,19 @@ export class MovementPredictor {
     const dx = snapshot.position.x - this.position.x;
     const dz = snapshot.position.z - this.position.z;
     const error = Math.hypot(dx, dz);
-    if (error > 2.75) {
+    const authoritativeSpeed = Math.hypot(
+      snapshot.velocity.x,
+      snapshot.velocity.z,
+    );
+    const launched =
+      !snapshot.grounded && authoritativeSpeed > GAME.airSpeed + 2;
+    if (error > 7) {
       this.position.x = snapshot.position.x;
       this.position.z = snapshot.position.z;
+      this.velocity = { x: snapshot.velocity.x, z: snapshot.velocity.z };
+    } else if (launched) {
+      this.position.x += dx * 0.55;
+      this.position.z += dz * 0.55;
       this.velocity = { x: snapshot.velocity.x, z: snapshot.velocity.z };
     } else {
       this.position.x += dx * 0.22;

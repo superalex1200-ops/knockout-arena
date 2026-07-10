@@ -70,4 +70,16 @@ describe("MovementPredictor", () => {
     predictor.update(1 / 30, 0, -1, 0);
     expect(predictor.position.z).toBeLessThan(-0.5);
   });
+  it("adopts authoritative launch velocity without a lagging correction", () => {
+    const predictor = new MovementPredictor();
+    predictor.reconcile(snapshot(0, 0));
+    predictor.setEnabled(true);
+    predictor.reconcile({
+      ...snapshot(0, 0),
+      grounded: false,
+      velocity: { x: 0, y: 5, z: -18 },
+    });
+    predictor.update(1 / 30, 0, 0, 0);
+    expect(predictor.position.z).toBeLessThan(-0.5);
+  });
 });

@@ -65,6 +65,7 @@ export class ArenaRenderer {
   private lastDashEffect = Number.NEGATIVE_INFINITY;
   private blockStartedAt = 0;
   private suppressNextPointerPause = false;
+  private lastSpeedTrail = 0;
   private lastHudEmit = 0;
   private rules = { ...DEFAULT_MATCH_RULES };
   private impactKick = 0;
@@ -670,6 +671,40 @@ export class ArenaRenderer {
       });
     }
   }
+  private spawnSpeedTrail(player: PlayerSnapshot): void {
+    if (this.settings.graphics === "low") return;
+    const velocity = new THREE.Vector3(
+      player.velocity.x,
+      player.velocity.y * 0.25,
+      player.velocity.z,
+    );
+    if (velocity.lengthSq() < 1) return;
+    const direction = velocity.normalize();
+    const count = this.settings.graphics === "high" ? 3 : 2;
+    for (let i = 0; i < count; i++) {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.02, 0.02, 0.65 + Math.random() * 0.5),
+        new THREE.MeshBasicMaterial({
+          color: i === 0 ? 0xffffff : 0x68edff,
+          transparent: true,
+          opacity: 0.5,
+          depthWrite: false,
+        }),
+      );
+      mesh.position.set(
+        player.position.x + (Math.random() - 0.5) * 0.9,
+        player.position.y + (Math.random() - 0.5) * 1.1,
+        player.position.z + (Math.random() - 0.5) * 0.9,
+      );
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction);
+      this.scene.add(mesh);
+      this.effects.push({
+        mesh,
+        velocity: direction.clone().multiplyScalar(-2.2),
+        life: 0.18 + Math.random() * 0.1,
+      });
+    }
+  }
   private spawnWallHit(
     position: { x: number; y: number; z: number },
     intensity: number,
@@ -767,6 +802,18 @@ export class ArenaRenderer {
       moveZ = Number(this.input.back) - Number(this.input.forward);
     const spectating = !!local?.eliminated && this.phase === "playing";
     const hudNow = performance.now();
+    const flightSpeed = local
+      ? Math.hypot(local.velocity.x, local.velocity.y, local.velocity.z)
+      : 0;
+    if (
+      local &&
+      !local.grounded &&
+      flightSpeed > 12 &&
+      hudNow - this.lastSpeedTrail >= 75
+    ) {
+      this.lastSpeedTrail = hudNow;
+      this.spawnSpeedTrail(local);
+    }
     if (hudNow - this.lastHudEmit >= 50) {
       this.lastHudEmit = hudNow;
       this.onCombatHud({
@@ -846,7 +893,7 @@ export class ArenaRenderer {
           this.predictor.position.y + 0.72 + headBob,
           this.predictor.position.z,
         ),
-        Math.min(1, dt * 22),
+        1 - Math.exp(-dt * 22),
       );
       const kick =
         this.impactKick * (this.settings.reducedMotion ? 0.006 : 0.022);
@@ -862,7 +909,10 @@ export class ArenaRenderer {
       if (!p) continue;
       mesh.position.lerp(
         new THREE.Vector3(p.position.x, p.position.y - 1.1, p.position.z),
-        Math.min(1, dt * 12),
+        1 -
+          Math.exp(
+            -dt * (Math.hypot(p.velocity.x, p.velocity.z) > 12 ? 18 : 12),
+          ),
       );
       mesh.rotation.y = p.yaw;
       const ring = mesh.getObjectByName("ring") as THREE.Mesh | undefined;
@@ -952,7 +1002,11 @@ export class ArenaRenderer {
         Math.min(1, dt * 20);
     }
     this.dashEffect = Math.max(0, this.dashEffect - dt * 4.5);
-    const targetFov = 76 + this.dashEffect * 9;
+    const flightFov = Math.min(6, Math.max(0, flightSpeed - 10) * 0.32);
+    const targetFov =
+      76 +
+      this.dashEffect * 9 +
+      flightFov * (this.settings.reducedMotion ? 0.2 : 1);
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 20);
       this.camera.updateProjectionMatrix();

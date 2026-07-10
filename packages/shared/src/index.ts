@@ -8,7 +8,7 @@ export const GAME = {
   jumpSpeed: 8.2,
   gravity: 22,
   dashSpeed: 19,
-  dashDurationMs: 180,
+  dashDurationMs: 260,
   dashCooldownMs: 1_300,
   punchRange: 3.55,
   punchCooldownMs: 340,

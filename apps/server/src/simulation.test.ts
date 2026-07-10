@@ -134,7 +134,7 @@ describe("authoritative combat simulation", () => {
     player.input = { ...player.input, moveZ: -1, dash: true };
     stepPlayer(player, 0.02, 2_000);
     expect(player.airRecoveryAvailable).toBe(false);
-    expect(player.dashUntil).toBe(2_180);
+    expect(player.dashUntil).toBe(2_000 + GAME.dashDurationMs);
     const firstSpeed = Math.hypot(player.velocity.x, player.velocity.z);
     player.lastDash = 0;
     player.velocity.x = 0;
