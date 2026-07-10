@@ -5,6 +5,7 @@ const roomCode = `TR${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 const socket = new WebSocket(url);
 let sawMode = false,
   sawBot = false,
+  sawAttack = false,
   finished = false;
 const timer = setTimeout(
   () =>
@@ -43,11 +44,14 @@ socket.on("message", (raw) => {
     if (message.trainingBotMode === "aggressive") sawMode = true;
     if (message.players.some((player) => player.bot)) sawBot = true;
   }
+  if (message.type === "attack" && message.attackerId === "coach-bot")
+    sawAttack = true;
   if (
     message.type === "hit" &&
     message.attackerId === "coach-bot" &&
     sawMode &&
-    sawBot
+    sawBot &&
+    sawAttack
   )
     finish();
 });

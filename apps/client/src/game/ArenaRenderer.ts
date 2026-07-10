@@ -47,6 +47,11 @@ export class ArenaRenderer {
   private clock = new THREE.Clock();
   private players = new Map<string, THREE.Group>();
   private snapshots = new Map<string, PlayerSnapshot>();
+  private remoteAttacks = new Map<
+    string,
+    { startedAt: number; kind: "light" | "heavy"; side: -1 | 1 }
+  >();
+  private remoteAttackSides = new Map<string, -1 | 1>();
   private playerId = "";
   private phase: "lobby" | "countdown" | "playing" | "results" = "lobby";
   private spectatorTargetId = "";
@@ -388,6 +393,8 @@ export class ArenaRenderer {
         if (!ids.has(id)) {
           this.scene.remove(mesh);
           this.players.delete(id);
+          this.remoteAttacks.delete(id);
+          this.remoteAttackSides.delete(id);
         }
       for (const player of message.players) {
         this.snapshots.set(player.id, player);
@@ -403,6 +410,16 @@ export class ArenaRenderer {
       if (local) this.predictor.reconcile(local);
       if (local && local.knockback > 0) this.onTutorialAction("knockback");
     } else {
+      if (message.type === "attack" && message.attackerId !== this.playerId) {
+        const side =
+          this.remoteAttackSides.get(message.attackerId) === -1 ? 1 : -1;
+        this.remoteAttackSides.set(message.attackerId, side);
+        this.remoteAttacks.set(message.attackerId, {
+          startedAt: performance.now(),
+          kind: message.kind,
+          side,
+        });
+      }
       if (message.type === "hit") {
         if (message.attackerId === this.playerId) this.punchTime = 0.12;
         if (message.victimId === this.playerId)
@@ -927,14 +944,36 @@ export class ArenaRenderer {
       const left = mesh.getObjectByName("glove-left"),
         right = mesh.getObjectByName("glove-right");
       if (left && right) {
+        const attack = this.remoteAttacks.get(id);
+        const duration = attack?.kind === "heavy" ? 420 : 250;
+        const attackAge = attack ? hudNow - attack.startedAt : duration;
+        if (attack && attackAge >= duration) this.remoteAttacks.delete(id);
+        const attackPhase =
+          attack && attackAge < duration
+            ? Math.sin((attackAge / duration) * Math.PI)
+            : 0;
         const targetY = p.blocking ? 1.65 : 1.2,
           targetZ = p.blocking ? -0.48 : -0.15;
         left.position.lerp(
-          new THREE.Vector3(-0.48, targetY, targetZ),
+          new THREE.Vector3(
+            -0.48 - (attack?.side === -1 ? attackPhase * 0.08 : 0),
+            targetY + (attack?.side === -1 ? attackPhase * 0.08 : 0),
+            targetZ -
+              (attack?.side === -1
+                ? attackPhase * (attack.kind === "heavy" ? 0.9 : 0.62)
+                : 0),
+          ),
           Math.min(1, dt * 15),
         );
         right.position.lerp(
-          new THREE.Vector3(0.48, targetY, targetZ),
+          new THREE.Vector3(
+            0.48 + (attack?.side === 1 ? attackPhase * 0.08 : 0),
+            targetY + (attack?.side === 1 ? attackPhase * 0.08 : 0),
+            targetZ -
+              (attack?.side === 1
+                ? attackPhase * (attack.kind === "heavy" ? 0.9 : 0.62)
+                : 0),
+          ),
           Math.min(1, dt * 15),
         );
       }

@@ -476,6 +476,7 @@ wss.on("connection", (socket) => {
       const now = Date.now();
       const rewindMs = Math.max(0, Math.min(150, now - msg.clientTime));
       if (msg.kind === "heavy" && !room.rules.heavyEnabled) return;
+      const previousAttackAt = player.lastAttack;
       const result = performAttack(
         player,
         room.players.values(),
@@ -491,6 +492,13 @@ wss.on("connection", (socket) => {
           !player.team ||
           candidate.team !== player.team,
       );
+      if (player.lastAttack !== previousAttackAt)
+        broadcast(room, {
+          type: "attack",
+          attackerId: player.id,
+          kind: msg.kind,
+          charge: Math.max(0, Math.min(1, msg.charge)),
+        });
       if (result)
         broadcast(room, {
           type: "hit",
@@ -644,6 +652,7 @@ setInterval(() => {
             player.input.moveZ =
               navigatingAroundWall || distance > 2.8 ? -0.48 : 0;
             const attackYaw = Math.atan2(-dx, -dz);
+            const previousAttackAt = player.lastAttack;
             const attack =
               distance < GAME.punchRange && now - player.lastAttack >= 950
                 ? performAttack(
@@ -657,6 +666,13 @@ setInterval(() => {
                     room.rules.knockbackMultiplier,
                   )
                 : undefined;
+            if (player.lastAttack !== previousAttackAt)
+              broadcast(room, {
+                type: "attack",
+                attackerId: player.id,
+                kind: "light",
+                charge: 0,
+              });
             if (attack)
               broadcast(room, {
                 type: "hit",

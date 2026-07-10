@@ -116,6 +116,12 @@ export type ServerMessage =
       knockback: number;
       combo: number;
     }
+  | {
+      type: "attack";
+      attackerId: string;
+      kind: AttackKind;
+      charge: number;
+    }
   | { type: "wallHit"; playerId: string; position: Vec3; intensity: number }
   | {
       type: "knockout";
