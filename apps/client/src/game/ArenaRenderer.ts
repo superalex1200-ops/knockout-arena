@@ -18,6 +18,8 @@ import {
   createFirstPersonGlove,
   createRemoteFighter,
   disposeObject3D,
+  fighterRestHandPosition,
+  firstPersonGlovePose,
   poseFighterArms,
   updateFighterAppearance,
   updateFirstPersonGloveAppearance,
@@ -873,13 +875,11 @@ export class ArenaRenderer {
           !attack && p.charging && chargingSide === side && !p.blocking;
         const reach =
           attack?.kind === "heavy" ? 0.72 + attack.charge * 0.28 : 0.62;
-        const target = new THREE.Vector3(
-          side * (p.blocking ? 0.36 : 0.48) +
-            (isAttacking ? side * attackPhase * 0.08 : 0),
-          p.blocking ? 1.63 : isCharging ? 1.06 : 1.2,
-          p.blocking ? -0.45 : isCharging ? 0.18 : -0.15,
-        );
+        const target = fighterRestHandPosition(side);
+        if (p.blocking) target.set(side * 0.29, 1.56, -0.48);
+        else if (isCharging) target.set(side * 0.48, 1.07, 0.12);
         if (isAttacking) {
+          target.x += side * attackPhase * 0.06;
           target.y += attackPhase * 0.08;
           target.z -= attackPhase * reach;
         }
@@ -928,40 +928,24 @@ export class ArenaRenderer {
       : Math.abs(Math.cos(hudNow * 0.009)) * 0.018 * movementAmount;
     for (let i = 0; i < this.fists.length; i++) {
       const fist = this.fists[i]!,
-        side = fist.userData.side as number;
+        side = fist.userData.side as -1 | 1;
       fist.visible = !spectating;
       const active = i === this.activeFist;
-      const target = this.input.block
-        ? new THREE.Vector3(side * 0.25, -0.16, -0.62)
-        : chargeAmount > 0 && active
-          ? new THREE.Vector3(
-              side * (0.62 + chargeAmount * 0.16),
-              -0.52 - chargeAmount * 0.12,
-              -0.9 + chargeAmount * 0.36,
-            )
-          : new THREE.Vector3(
-              side * (0.55 + (active ? phase * 0.08 : 0)),
-              -0.5 + handBob,
-              -1.15 - (active ? phase * 0.8 : 0),
-            );
-      if (!this.input.block && chargeAmount === 0) target.x += handSway;
-      fist.position.lerp(target, Math.min(1, dt * 26));
+      const pose = firstPersonGlovePose({
+        side,
+        blocking: this.input.block,
+        charging: chargeAmount > 0 && active,
+        chargeAmount,
+        punching: active && phase > 0,
+        punchPhase: phase,
+        handBob,
+        handSway: this.input.block || chargeAmount > 0 ? 0 : handSway,
+      });
+      fist.position.lerp(pose.position, Math.min(1, dt * 26));
       fist.rotation.x +=
-        ((this.input.block
-          ? -0.72
-          : chargeAmount > 0 && active
-            ? -0.35 - chargeAmount * 0.75
-            : 0) -
-          fist.rotation.x) *
-        Math.min(1, dt * 20);
+        (pose.rotationX - fist.rotation.x) * Math.min(1, dt * 20);
       fist.rotation.z +=
-        ((this.input.block
-          ? side * 0.42
-          : chargeAmount > 0 && active
-            ? side * -0.3 * chargeAmount
-            : 0) -
-          fist.rotation.z) *
-        Math.min(1, dt * 20);
+        (pose.rotationZ - fist.rotation.z) * Math.min(1, dt * 20);
     }
     this.dashEffect = Math.max(0, this.dashEffect - dt * 4.5);
     const flightFov = Math.min(6, Math.max(0, flightSpeed - 10) * 0.32);

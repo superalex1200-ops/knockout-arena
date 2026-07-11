@@ -5,6 +5,7 @@ import {
   createFirstPersonGlove,
   createRemoteFighter,
   disposeObject3D,
+  firstPersonGlovePose,
   poseFighterArms,
   updateFighterAppearance,
   updateFirstPersonGloveAppearance,
@@ -48,6 +49,8 @@ describe("CharacterModel", () => {
     expect(visual.root.getObjectByName("visor")).toBeInstanceOf(THREE.Mesh);
     expect(meshes.length).toBeGreaterThanOrEqual(14);
     expect(meshes.length).toBeLessThanOrEqual(18);
+    expect(visual.root.rotation.y).toBeCloseTo(0.75);
+    visual.root.rotation.y = 0;
 
     const size = new THREE.Box3()
       .setFromObject(visual.root)
@@ -55,9 +58,12 @@ describe("CharacterModel", () => {
     expect(size.y).toBeGreaterThan(2);
     expect(size.y).toBeLessThan(2.5);
     expect(size.x).toBeGreaterThan(1.1);
-    expect(size.x).toBeLessThan(2.4);
+    expect(size.x / size.y).toBeLessThan(0.72);
+    expect(visual.leftLeg.children).toHaveLength(2);
+    expect(visual.rightLeg.children).toHaveLength(2);
+    expect(visual.leftGlove.position.y).not.toBe(visual.rightGlove.position.y);
+    expect(visual.leftGlove.position.z).not.toBe(visual.rightGlove.position.z);
     expect(visual.root.position).toMatchObject({ x: 4, y: 0, z: -3 });
-    expect(visual.root.rotation.y).toBeCloseTo(0.75);
   });
 
   it("keeps the two-bone arms connected to a moving glove target", () => {
@@ -69,6 +75,29 @@ describe("CharacterModel", () => {
     expect(visual.rightArm.forearm.position.z).toBeLessThan(previousForearmZ);
     expect(visual.rightArm.upper.scale.y).toBeGreaterThan(0);
     expect(visual.rightArm.forearm.scale.y).toBeGreaterThan(0);
+  });
+
+  it("keeps every first-person pose safely in front of the camera", () => {
+    for (const state of ["rest", "block", "charge"] as const) {
+      const fist = createFirstPersonGlove(1);
+      const pose = firstPersonGlovePose({
+        side: 1,
+        blocking: state === "block",
+        charging: state === "charge",
+        chargeAmount: state === "charge" ? 1 : 0,
+        punching: false,
+        punchPhase: 0,
+      });
+      fist.position.copy(pose.position);
+      fist.rotation.x = pose.rotationX;
+      fist.rotation.z = pose.rotationZ;
+      const bounds = new THREE.Box3().setFromObject(fist);
+      const size = bounds.getSize(new THREE.Vector3());
+
+      expect(bounds.max.z).toBeLessThan(-0.58);
+      expect(size.x).toBeLessThan(0.55);
+      expect(size.y).toBeLessThan(0.7);
+    }
   });
 
   it("updates remote and first-person colors when teams are assigned later", () => {
