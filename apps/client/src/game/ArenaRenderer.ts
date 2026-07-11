@@ -14,6 +14,15 @@ import {
   isPunchTargetValid,
   type CombatHudState,
 } from "./combatHud";
+import {
+  createFirstPersonGlove,
+  createRemoteFighter,
+  disposeObject3D,
+  poseFighterArms,
+  updateFighterAppearance,
+  updateFirstPersonGloveAppearance,
+  type FighterVisual,
+} from "./CharacterModel";
 
 type Input = {
   forward: boolean;
@@ -46,11 +55,16 @@ export class ArenaRenderer {
     powerPreference: "high-performance",
   });
   private clock = new THREE.Clock();
-  private players = new Map<string, THREE.Group>();
+  private players = new Map<string, FighterVisual>();
   private snapshots = new Map<string, PlayerSnapshot>();
   private remoteAttacks = new Map<
     string,
-    { startedAt: number; kind: "light" | "heavy"; side: -1 | 1 }
+    {
+      startedAt: number;
+      kind: "light" | "heavy";
+      side: -1 | 1;
+      charge: number;
+    }
   >();
   private remoteAttackSides = new Map<string, -1 | 1>();
   private playerId = "";
@@ -235,152 +249,9 @@ export class ArenaRenderer {
         this.scene.add(light);
       }
     }
-    this.fists = [this.makeFist(-1), this.makeFist(1)];
+    this.fists = [createFirstPersonGlove(-1), createFirstPersonGlove(1)];
     for (const fist of this.fists) this.camera.add(fist);
     this.scene.add(this.camera);
-  }
-
-  private makeFist(side: -1 | 1): THREE.Group {
-    const group = new THREE.Group();
-    const glove = new THREE.MeshStandardMaterial({
-      color: 0xff3e76,
-      roughness: 0.28,
-      metalness: 0.2,
-      emissive: 0x31000e,
-    });
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 12), glove);
-    hand.scale.set(1.12, 0.88, 1.3);
-    group.add(hand);
-    const cuff = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.15, 0.19, 0.31, 12),
-      new THREE.MeshStandardMaterial({ color: 0x191e36, metalness: 0.6 }),
-    );
-    cuff.rotation.x = Math.PI / 2;
-    cuff.position.z = 0.27;
-    group.add(cuff);
-    const knuckle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.28, 0.09, 0.15),
-      new THREE.MeshStandardMaterial({
-        color: 0xff7a9d,
-        roughness: 0.3,
-        emissive: 0x250008,
-      }),
-    );
-    knuckle.position.set(0, 0.1, -0.1);
-    group.add(knuckle);
-    group.position.set(side * 0.55, -0.5, -1.15);
-    group.userData.side = side;
-    return group;
-  }
-
-  private makePlayer(player: PlayerSnapshot): THREE.Group {
-    const group = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: player.bot
-        ? 0xffbd2e
-        : player.team === "red"
-          ? 0xff3e62
-          : player.team === "blue"
-            ? 0x379dff
-            : 0x6d5cff,
-      roughness: 0.42,
-      metalness: 0.16,
-      emissive: player.bot
-        ? 0x301900
-        : player.team === "red"
-          ? 0x3b0611
-          : player.team === "blue"
-            ? 0x061d3b
-            : 0x10083a,
-    });
-    const dark = new THREE.MeshStandardMaterial({
-      color: 0x171b30,
-      roughness: 0.5,
-    });
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.52, 0.85, 6, 12),
-      bodyMat,
-    );
-    body.position.y = 0.95;
-    group.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.41, 16, 12), dark);
-    head.position.y = 1.95;
-    group.add(head);
-    const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.48, 0.12, 0.08),
-      new THREE.MeshStandardMaterial({
-        color: 0x72edff,
-        emissive: 0x1ba7c4,
-        emissiveIntensity: 2.5,
-        metalness: 0.35,
-      }),
-    );
-    visor.position.set(0, 1.98, -0.36);
-    group.add(visor);
-    const chest = new THREE.Mesh(
-      new THREE.BoxGeometry(0.72, 0.24, 0.08),
-      new THREE.MeshStandardMaterial({
-        color: 0xf3f6ff,
-        emissive: player.bot ? 0x6b3d00 : 0x1c175d,
-        emissiveIntensity: 0.9,
-        metalness: 0.45,
-      }),
-    );
-    chest.position.set(0, 1.22, -0.49);
-    group.add(chest);
-    for (const side of [-1, 1]) {
-      const arm = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.14, 0.42, 4, 8),
-        dark,
-      );
-      arm.rotation.z = side * -0.28;
-      arm.position.set(side * 0.58, 1.18, 0);
-      group.add(arm);
-      const glove = new THREE.Mesh(
-        new THREE.SphereGeometry(0.27, 12, 9),
-        bodyMat,
-      );
-      glove.position.set(side * 0.7, 1.2, -0.15);
-      glove.name = side < 0 ? "glove-left" : "glove-right";
-      group.add(glove);
-      const leg = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.17, 0.4, 4, 8),
-        dark,
-      );
-      leg.name = side < 0 ? "leg-left" : "leg-right";
-      leg.position.set(side * 0.24, 0.28, 0);
-      group.add(leg);
-    }
-    const guard = new THREE.Mesh(
-      new THREE.TorusGeometry(0.62, 0.035, 8, 32),
-      new THREE.MeshBasicMaterial({
-        color: 0x72edff,
-        transparent: true,
-        opacity: 0.65,
-        depthWrite: false,
-      }),
-    );
-    guard.position.set(0, 1.5, -0.58);
-    guard.name = "guard";
-    guard.visible = false;
-    group.add(guard);
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(0.67, 0.035, 8, 28),
-      new THREE.MeshBasicMaterial({
-        color: player.protected ? 0x55f7ff : 0xff416c,
-        transparent: true,
-        opacity: 0.8,
-      }),
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.08;
-    ring.name = "ring";
-    group.add(ring);
-    if (this.settings.graphics === "high")
-      group.traverse((object) => {
-        if (object instanceof THREE.Mesh) object.castShadow = true;
-      });
-    return group;
   }
 
   onMessage(message: ServerMessage): void {
@@ -392,35 +263,49 @@ export class ArenaRenderer {
       this.phase = message.phase;
       this.rules = message.rules;
       const ids = new Set(message.players.map((p) => p.id));
-      for (const [id, mesh] of this.players)
+      for (const [id, visual] of this.players)
         if (!ids.has(id)) {
-          this.scene.remove(mesh);
+          this.scene.remove(visual.root);
+          disposeObject3D(visual.root);
           this.players.delete(id);
           this.remoteAttacks.delete(id);
           this.remoteAttackSides.delete(id);
         }
+      this.snapshots = new Map(
+        message.players.map((player) => [player.id, player]),
+      );
       for (const player of message.players) {
-        this.snapshots.set(player.id, player);
         if (player.id !== this.playerId && !this.players.has(player.id)) {
-          const mesh = this.makePlayer(player);
-          this.scene.add(mesh);
-          this.players.set(player.id, mesh);
+          const visual = createRemoteFighter(
+            player,
+            this.settings.graphics === "high",
+          );
+          this.scene.add(visual.root);
+          this.players.set(player.id, visual);
+        } else {
+          const visual = this.players.get(player.id);
+          if (visual) updateFighterAppearance(visual, player);
         }
       }
       const local = message.players.find((p) => p.id === this.playerId);
+      if (local)
+        for (const fist of this.fists)
+          updateFirstPersonGloveAppearance(fist, local);
       this.notify(message, local);
       this.predictor.setEnabled(message.phase === "playing");
       if (local) this.predictor.reconcile(local);
       if (local && local.knockback > 0) this.onTutorialAction("knockback");
     } else {
       if (message.type === "attack" && message.attackerId !== this.playerId) {
+        const previousSide = this.remoteAttackSides.get(message.attackerId);
         const side =
-          this.remoteAttackSides.get(message.attackerId) === -1 ? 1 : -1;
+          previousSide === undefined ? 1 : previousSide === 1 ? -1 : 1;
         this.remoteAttackSides.set(message.attackerId, side);
         this.remoteAttacks.set(message.attackerId, {
           startedAt: performance.now(),
           kind: message.kind,
           side,
+          charge: message.charge,
         });
       }
       if (message.type === "hit") {
@@ -946,72 +831,85 @@ export class ArenaRenderer {
         "YXZ",
       );
     }
-    for (const [id, mesh] of this.players) {
+    for (const [id, visual] of this.players) {
       const p = this.snapshots.get(id);
       if (!p) continue;
-      mesh.position.lerp(
+      const root = visual.root;
+      root.position.lerp(
         new THREE.Vector3(p.position.x, p.position.y - 1.1, p.position.z),
         1 -
           Math.exp(
             -dt * (Math.hypot(p.velocity.x, p.velocity.z) > 12 ? 18 : 12),
           ),
       );
-      mesh.rotation.y = p.yaw;
-      const ring = mesh.getObjectByName("ring") as THREE.Mesh | undefined;
-      if (ring) ring.visible = p.protected;
-      const guard = mesh.getObjectByName("guard") as THREE.Mesh | undefined;
-      if (guard) {
-        guard.visible = p.blocking;
-        guard.scale.setScalar(1 + Math.sin(hudNow / 70) * 0.035);
-        (guard.material as THREE.MeshBasicMaterial).opacity =
-          0.5 + Math.sin(hudNow / 85) * 0.14;
-      }
-      const left = mesh.getObjectByName("glove-left"),
-        right = mesh.getObjectByName("glove-right");
-      if (left && right) {
-        const attack = this.remoteAttacks.get(id);
-        const duration = attack?.kind === "heavy" ? 420 : 250;
-        const attackAge = attack ? hudNow - attack.startedAt : duration;
-        if (attack && attackAge >= duration) this.remoteAttacks.delete(id);
-        const attackPhase =
-          attack && attackAge < duration
-            ? Math.sin((attackAge / duration) * Math.PI)
+      const turnDelta = Math.atan2(
+        Math.sin(p.yaw - root.rotation.y),
+        Math.cos(p.yaw - root.rotation.y),
+      );
+      root.rotation.y += turnDelta * (1 - Math.exp(-dt * 16));
+      visual.ring.visible = p.protected;
+      visual.guard.visible = p.blocking;
+      visual.guard.scale.setScalar(1 + Math.sin(hudNow / 70) * 0.035);
+      visual.guard.material.opacity = 0.5 + Math.sin(hudNow / 85) * 0.14;
+
+      const attack = this.remoteAttacks.get(id);
+      const duration =
+        attack?.kind === "heavy" ? 360 + attack.charge * 120 : 250;
+      const attackAge = attack ? hudNow - attack.startedAt : duration;
+      if (attack && attackAge >= duration) this.remoteAttacks.delete(id);
+      const attackPhase =
+        attack && attackAge < duration
+          ? Math.sin((attackAge / duration) * Math.PI)
+          : 0;
+      const previousSide = this.remoteAttackSides.get(id);
+      const chargingSide: -1 | 1 =
+        previousSide === undefined ? 1 : previousSide === 1 ? -1 : 1;
+      for (const [side, glove] of [
+        [-1, visual.leftGlove],
+        [1, visual.rightGlove],
+      ] as const) {
+        const isAttacking = attack?.side === side && attackPhase > 0;
+        const isCharging =
+          !attack && p.charging && chargingSide === side && !p.blocking;
+        const reach =
+          attack?.kind === "heavy" ? 0.72 + attack.charge * 0.28 : 0.62;
+        const target = new THREE.Vector3(
+          side * (p.blocking ? 0.36 : 0.48) +
+            (isAttacking ? side * attackPhase * 0.08 : 0),
+          p.blocking ? 1.63 : isCharging ? 1.06 : 1.2,
+          p.blocking ? -0.45 : isCharging ? 0.18 : -0.15,
+        );
+        if (isAttacking) {
+          target.y += attackPhase * 0.08;
+          target.z -= attackPhase * reach;
+        }
+        glove.position.lerp(target, Math.min(1, dt * 16));
+        const targetRotationX = p.blocking
+          ? -0.62
+          : isCharging
+            ? -0.48
+            : isAttacking
+              ? -attackPhase * 0.38
+              : 0;
+        const targetRotationZ = p.blocking
+          ? side * 0.38
+          : isCharging
+            ? side * -0.26
             : 0;
-        const targetY = p.blocking ? 1.65 : p.charging ? 1.08 : 1.2,
-          targetZ = p.blocking ? -0.48 : p.charging ? 0.16 : -0.15;
-        left.position.lerp(
-          new THREE.Vector3(
-            -0.48 - (attack?.side === -1 ? attackPhase * 0.08 : 0),
-            targetY + (attack?.side === -1 ? attackPhase * 0.08 : 0),
-            targetZ -
-              (attack?.side === -1
-                ? attackPhase * (attack.kind === "heavy" ? 0.9 : 0.62)
-                : 0),
-          ),
-          Math.min(1, dt * 15),
-        );
-        right.position.lerp(
-          new THREE.Vector3(
-            0.48 + (attack?.side === 1 ? attackPhase * 0.08 : 0),
-            targetY + (attack?.side === 1 ? attackPhase * 0.08 : 0),
-            targetZ -
-              (attack?.side === 1
-                ? attackPhase * (attack.kind === "heavy" ? 0.9 : 0.62)
-                : 0),
-          ),
-          Math.min(1, dt * 15),
-        );
+        glove.rotation.x +=
+          (targetRotationX - glove.rotation.x) * Math.min(1, dt * 18);
+        glove.rotation.z +=
+          (targetRotationZ - glove.rotation.z) * Math.min(1, dt * 18);
       }
+      poseFighterArms(visual);
+
       const stride = Math.min(1, Math.hypot(p.velocity.x, p.velocity.z) / 7);
-      const legLeft = mesh.getObjectByName("leg-left"),
-        legRight = mesh.getObjectByName("leg-right");
-      if (legLeft && legRight) {
-        const swing = Math.sin(hudNow * 0.014) * 0.48 * stride;
-        legLeft.rotation.x +=
-          (swing - legLeft.rotation.x) * Math.min(1, dt * 14);
-        legRight.rotation.x +=
-          (-swing - legRight.rotation.x) * Math.min(1, dt * 14);
-      }
+      if (stride > 0.025) visual.walkPhase += dt * (5 + stride * 9);
+      const swing = Math.sin(visual.walkPhase) * 0.48 * stride;
+      visual.leftLeg.rotation.x +=
+        (swing - visual.leftLeg.rotation.x) * Math.min(1, dt * 14);
+      visual.rightLeg.rotation.x +=
+        (-swing - visual.rightLeg.rotation.x) * Math.min(1, dt * 14);
     }
     this.punchTime = Math.max(0, this.punchTime - dt);
     const phase =
@@ -1128,7 +1026,16 @@ export class ArenaRenderer {
       (effect.mesh.material as THREE.Material).dispose();
     }
     this.effects = [];
+    disposeObject3D(this.scene);
+    this.scene.clear();
+    this.players.clear();
+    this.snapshots.clear();
+    this.remoteAttacks.clear();
+    this.remoteAttackSides.clear();
+    this.fists = [];
+    this.renderer.renderLists.dispose();
     this.renderer.dispose();
-    this.host.removeChild(this.renderer.domElement);
+    if (this.renderer.domElement.parentElement === this.host)
+      this.host.removeChild(this.renderer.domElement);
   }
 }
