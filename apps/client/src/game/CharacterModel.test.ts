@@ -5,6 +5,7 @@ import {
   createFirstPersonGlove,
   createRemoteFighter,
   disposeObject3D,
+  fighterArmConnectionError,
   firstPersonGlovePose,
   poseFighterArms,
   updateFighterAppearance,
@@ -47,8 +48,9 @@ describe("CharacterModel", () => {
     expect(visual.leftLeg.name).toBe("leg-left");
     expect(visual.rightLeg.name).toBe("leg-right");
     expect(visual.root.getObjectByName("visor")).toBeInstanceOf(THREE.Mesh);
-    expect(meshes.length).toBeGreaterThanOrEqual(14);
-    expect(meshes.length).toBeLessThanOrEqual(18);
+    expect(meshes.length).toBe(20);
+    expect(visual.root.userData.design).toBe("smooth-boxer-v3");
+    expect(meshes.some((mesh) => mesh.name.includes("knuckle"))).toBe(false);
     expect(visual.root.rotation.y).toBeCloseTo(0.75);
     visual.root.rotation.y = 0;
 
@@ -66,37 +68,81 @@ describe("CharacterModel", () => {
     expect(visual.root.position).toMatchObject({ x: 4, y: 0, z: -3 });
   });
 
-  it("keeps the two-bone arms connected to a moving glove target", () => {
+  it("keeps both arm chains connected through every combat pose", () => {
     const visual = createRemoteFighter(snapshot(), false);
-    const previousForearmZ = visual.rightArm.forearm.position.z;
-    visual.rightGlove.position.z = -1;
-    poseFighterArms(visual);
+    const poses = [
+      () => {},
+      () => {
+        visual.leftGlove.position.set(-0.3, 1.55, -0.5);
+        visual.rightGlove.position.set(0.3, 1.55, -0.5);
+        visual.leftGlove.rotation.set(-0.62, 0, -0.38);
+        visual.rightGlove.rotation.set(-0.62, 0, 0.38);
+      },
+      () => {
+        visual.leftGlove.position.set(-0.48, 1.07, 0.12);
+        visual.rightGlove.position.set(0.48, 1.07, 0.12);
+        visual.leftGlove.rotation.set(-0.48, 0, 0.26);
+        visual.rightGlove.rotation.set(-0.48, 0, -0.26);
+      },
+      () => {
+        visual.leftGlove.position.set(-0.42, 1.3, -1.08);
+        visual.rightGlove.position.set(0.42, 1.2, -1.08);
+        visual.leftGlove.rotation.set(-0.35, 0, 0);
+        visual.rightGlove.rotation.set(-0.35, 0, 0);
+      },
+    ];
 
-    expect(visual.rightArm.forearm.position.z).toBeLessThan(previousForearmZ);
-    expect(visual.rightArm.upper.scale.y).toBeGreaterThan(0);
-    expect(visual.rightArm.forearm.scale.y).toBeGreaterThan(0);
+    for (const applyPose of poses) {
+      applyPose();
+      poseFighterArms(visual);
+      expect(fighterArmConnectionError(visual.leftArm)).toBeLessThan(1e-8);
+      expect(fighterArmConnectionError(visual.rightArm)).toBeLessThan(1e-8);
+      expect(visual.leftArm.upper.material).toBe(
+        visual.leftArm.forearm.material,
+      );
+      expect(visual.rightArm.upper.material).toBe(
+        visual.rightArm.forearm.material,
+      );
+      expect(
+        visual.leftArm.elbow.position.toArray().every(Number.isFinite),
+      ).toBe(true);
+      expect(
+        visual.rightArm.elbow.position.toArray().every(Number.isFinite),
+      ).toBe(true);
+    }
   });
 
-  it("keeps every first-person pose safely in front of the camera", () => {
-    for (const state of ["rest", "block", "charge"] as const) {
-      const fist = createFirstPersonGlove(1);
-      const pose = firstPersonGlovePose({
-        side: 1,
-        blocking: state === "block",
-        charging: state === "charge",
-        chargeAmount: state === "charge" ? 1 : 0,
-        punching: false,
-        punchPhase: 0,
-      });
-      fist.position.copy(pose.position);
-      fist.rotation.x = pose.rotationX;
-      fist.rotation.z = pose.rotationZ;
-      const bounds = new THREE.Box3().setFromObject(fist);
-      const size = bounds.getSize(new THREE.Vector3());
+  it("keeps smooth first-person gloves clear of the camera and crosshair", () => {
+    for (const state of ["rest", "block", "charge", "punch"] as const) {
+      const boundsBySide = new Map<number, THREE.Box3>();
+      for (const side of [-1, 1] as const) {
+        const fist = createFirstPersonGlove(side);
+        const pose = firstPersonGlovePose({
+          side,
+          blocking: state === "block",
+          charging: state === "charge",
+          chargeAmount: state === "charge" ? 1 : 0,
+          punching: state === "punch",
+          punchPhase: state === "punch" ? 1 : 0,
+        });
+        fist.position.copy(pose.position);
+        fist.rotation.x = pose.rotationX;
+        fist.rotation.z = pose.rotationZ;
+        const bounds = new THREE.Box3().setFromObject(fist);
+        const size = bounds.getSize(new THREE.Vector3());
+        boundsBySide.set(side, bounds);
 
-      expect(bounds.max.z).toBeLessThan(-0.58);
-      expect(size.x).toBeLessThan(0.55);
-      expect(size.y).toBeLessThan(0.7);
+        expect(fist.children).toHaveLength(3);
+        expect(fist.userData.design).toBe("smooth-boxing-glove-v3");
+        expect(
+          fist.children.some((child) => child.name.includes("knuckle")),
+        ).toBe(false);
+        expect(bounds.max.z).toBeLessThan(-0.72);
+        expect(size.x).toBeLessThan(0.45);
+        expect(size.y).toBeLessThan(0.55);
+      }
+      expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.015);
+      expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.015);
     }
   });
 
@@ -109,12 +155,14 @@ describe("CharacterModel", () => {
     updateFighterAppearance(visual, red);
     updateFirstPersonGloveAppearance(fist, red);
 
-    expect(visual.appearance.primary.color.getHex()).toBe(0xff385f);
-    const fistPalm = fist.getObjectByName("fp-palm") as THREE.Mesh<
+    expect(visual.appearance.primary.color.getHex()).toBe(0xf23d63);
+    const fistPalm = fist.getObjectByName("fp-glove-shell") as THREE.Mesh<
       THREE.BufferGeometry,
       THREE.MeshStandardMaterial
     >;
-    expect(fistPalm.material.color.getHex()).toBe(0xff385f);
+    expect(fistPalm.material.color.getHex()).toBe(0xf23d63);
+    expect(fistPalm.material.roughness).toBeGreaterThanOrEqual(0.45);
+    expect(fistPalm.material.metalness).toBeLessThanOrEqual(0.1);
     expect(fist.userData.side).toBe(1);
     expect(fist.getObjectByName("fp-cuff")).toBeInstanceOf(THREE.Mesh);
   });
