@@ -82,6 +82,7 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
         isFiniteNumber(value.moveX) &&
         isFiniteNumber(value.moveZ) &&
         isFiniteNumber(value.yaw) &&
+        (value.pitch === undefined || isFiniteNumber(value.pitch)) &&
         typeof value.jump === "boolean" &&
         typeof value.dash === "boolean" &&
         typeof value.blocking === "boolean" &&
@@ -92,6 +93,9 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
       return (value.kind === "light" || value.kind === "heavy") &&
         isFiniteNumber(value.charge) &&
         isFiniteNumber(value.yaw) &&
+        (value.pitch === undefined || isFiniteNumber(value.pitch)) &&
+        (value.inputSequence === undefined ||
+          Number.isSafeInteger(value.inputSequence)) &&
         isFiniteNumber(value.clientTime)
         ? (value as ClientMessage)
         : undefined;

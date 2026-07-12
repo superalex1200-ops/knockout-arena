@@ -7,6 +7,7 @@ import {
   creditKnockout,
   performAttack,
   respawn,
+  resolvePlayerCollisions,
   stepPlayer,
 } from "./simulation.js";
 
@@ -148,7 +149,7 @@ describe("authoritative combat simulation", () => {
     const result = stepPlayer(player, 0.02, 2_000);
     expect(result.wallHit?.intensity).toBeGreaterThan(7);
     expect(player.position.x).toBeCloseTo(-7.85, 8);
-    expect(player.velocity.x).toBeGreaterThan(0);
+    expect(player.velocity.x).toBeCloseTo(0);
     expect(player.knockback).toBeGreaterThan(0);
   });
   it("cannot tunnel through a wall at extreme knockback speed", () => {
@@ -158,7 +159,7 @@ describe("authoritative combat simulation", () => {
     player.grounded = false;
     stepPlayer(player, 1 / 30, 2_000);
     expect(player.position.x).toBeGreaterThanOrEqual(-7.851);
-    expect(player.velocity.x).toBeGreaterThan(0);
+    expect(player.velocity.x).toBeCloseTo(0);
   });
 
   it("allows only one air recovery until landing", () => {
@@ -299,7 +300,7 @@ describe("authoritative combat simulation", () => {
     expect(Math.abs(waypoint.z)).toBeGreaterThan(3.5);
   });
 
-  it("accepts a forgiving off-center punch sweep", () => {
+  it("does not let an offscreen target steal a centered punch", () => {
     const attacker = createPlayer("a", "Alpha", 0),
       victim = createPlayer("b", "Bravo", 0);
     attacker.position = { x: 0, y: 1.1, z: 0 };
@@ -307,9 +308,104 @@ describe("authoritative combat simulation", () => {
     attacker.protectionUntil = 0;
     victim.protectionUntil = 0;
     expect(
-      performAttack(attacker, [attacker, victim], "light", 0, 0, 1_000)?.victim
-        .id,
+      performAttack(attacker, [attacker, victim], "light", 0, 0, 1_000),
+    ).toBeUndefined();
+  });
+
+  it("selects the fighter closest to the crosshair, not the nearest center", () => {
+    const attacker = createPlayer("a", "Alpha", 0);
+    const peripheral = createPlayer("p", "Peripheral", 0);
+    const centered = createPlayer("c", "Centered", 0);
+    attacker.position = { x: 0, y: 1.1, z: 0 };
+    peripheral.position = { x: 0.9, y: 1.1, z: -0.9 };
+    centered.position = { x: 0, y: 1.1, z: -2.5 };
+    attacker.protectionUntil =
+      peripheral.protectionUntil =
+      centered.protectionUntil =
+        0;
+    expect(
+      performAttack(
+        attacker,
+        [attacker, peripheral, centered],
+        "light",
+        0,
+        0,
+        1_000,
+      )?.victim.id,
+    ).toBe(centered.id);
+  });
+
+  it("separates overlapping fighters and keeps point-blank combat valid", () => {
+    const attacker = createPlayer("a", "Alpha", 0);
+    const victim = createPlayer("b", "Bravo", 0);
+    attacker.position = { x: 0, y: 1.1, z: 0 };
+    victim.position = { x: 0, y: 1.1, z: 0 };
+    attacker.protectionUntil = victim.protectionUntil = 0;
+    attacker.protected = victim.protected = false;
+    resolvePlayerCollisions([attacker, victim]);
+    expect(
+      Math.hypot(
+        attacker.position.x - victim.position.x,
+        attacker.position.z - victim.position.z,
+      ),
+    ).toBeCloseTo(1.1);
+    expect(
+      performAttack(
+        attacker,
+        [attacker, victim],
+        "light",
+        0,
+        -Math.PI / 2,
+        1_000,
+      )?.victim.id,
     ).toBe(victim.id);
+  });
+
+  it("prevents two head-on dash hitboxes from swapping through each other", () => {
+    const first = createPlayer("a", "Alpha", 0);
+    const second = createPlayer("b", "Bravo", 0);
+    first.protected = second.protected = false;
+    first.protectionUntil = second.protectionUntil = 0;
+    first.position = { x: 1, y: 1.1, z: 0 };
+    second.position = { x: -1, y: 1.1, z: 0 };
+    first.positionHistory = [
+      { time: 1_000, position: { x: -1, y: 1.1, z: 0 } },
+      { time: 1_033, position: { ...first.position } },
+    ];
+    second.positionHistory = [
+      { time: 1_000, position: { x: 1, y: 1.1, z: 0 } },
+      { time: 1_033, position: { ...second.position } },
+    ];
+    first.velocity.x = 19;
+    second.velocity.x = -19;
+    resolvePlayerCollisions([first, second]);
+    expect(first.position.x).toBeLessThan(second.position.x);
+    expect(second.position.x - first.position.x).toBeCloseTo(1.1);
+    expect(first.velocity.x).toBeCloseTo(0);
+    expect(second.velocity.x).toBeCloseTo(0);
+  });
+
+  it("transfers body separation when one fighter is pinned to a wall", () => {
+    const pinned = createPlayer("a", "Pinned", 0);
+    const movable = createPlayer("b", "Movable", 0);
+    pinned.protected = movable.protected = false;
+    pinned.protectionUntil = movable.protectionUntil = 0;
+    pinned.position = { x: -7.85, y: 1.1, z: 0 };
+    movable.position = { x: -7.2, y: 1.1, z: 0 };
+    resolvePlayerCollisions([pinned, movable]);
+    expect(pinned.position.x).toBeCloseTo(-7.85);
+    expect(movable.position.x - pinned.position.x).toBeCloseTo(1.1);
+  });
+
+  it("does not body-block a synchronized finisher launch", () => {
+    const launched = createPlayer("a", "Launched", 0);
+    const other = createPlayer("b", "Other", 0);
+    launched.protected = other.protected = false;
+    launched.position = { x: 0, y: 1.1, z: 0 };
+    other.position = { x: 0, y: 1.1, z: 0 };
+    launched.finisherUntil = 2_000;
+    resolvePlayerCollisions([launched, other], 1_500);
+    expect(launched.position).toEqual(other.position);
   });
 
   it("launches a 100-percent heavy finisher beyond the arena", () => {

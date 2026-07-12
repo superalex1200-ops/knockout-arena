@@ -1,9 +1,13 @@
 import {
-  ARENA_WALLS,
+  attackDirection,
+  attackTargetHit,
   GAME,
   movementBlendFactor,
+  PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   knockbackForce,
+  resolveArenaWallOverlaps,
+  sweepArenaWalls,
   type AttackKind,
   type PlayerSnapshot,
   type Vec3,
@@ -13,6 +17,7 @@ export type InputState = {
   moveX: number;
   moveZ: number;
   yaw: number;
+  pitch: number;
   jump: boolean;
   dash: boolean;
   blocking: boolean;
@@ -70,6 +75,7 @@ export function createPlayer(
     position: { ...spawn },
     velocity: { x: 0, y: 0, z: 0 },
     yaw: 0,
+    pitch: 0,
     knockback: 0,
     score: 0,
     assists: 0,
@@ -88,6 +94,7 @@ export function createPlayer(
       moveX: 0,
       moveZ: 0,
       yaw: 0,
+      pitch: 0,
       jump: false,
       dash: false,
       blocking: false,
@@ -144,48 +151,30 @@ export function respawn(player: SimPlayer, index: number, now: number): void {
   player.positionHistory = [{ time: now, position: { ...player.position } }];
 }
 
-function resolveWalls(player: SimPlayer, now: number): StepResult["wallHit"] {
-  if (player.position.y > 4.8) return undefined;
-  for (const wall of ARENA_WALLS) {
-    const minX = wall.minX - PLAYER_RADIUS,
-      maxX = wall.maxX + PLAYER_RADIUS;
-    const minZ = wall.minZ - PLAYER_RADIUS,
-      maxZ = wall.maxZ + PLAYER_RADIUS;
-    if (
-      player.position.x <= minX ||
-      player.position.x >= maxX ||
-      player.position.z <= minZ ||
-      player.position.z >= maxZ ||
-      player.position.y > wall.height + 1.1
-    )
-      continue;
-    const sides = [
-      { depth: player.position.x - minX, nx: -1, nz: 0, x: minX },
-      { depth: maxX - player.position.x, nx: 1, nz: 0, x: maxX },
-      { depth: player.position.z - minZ, nx: 0, nz: -1, z: minZ },
-      { depth: maxZ - player.position.z, nx: 0, nz: 1, z: maxZ },
-    ];
-    sides.sort((a, b) => a.depth - b.depth);
-    const side = sides[0]!;
-    if (side.x !== undefined) player.position.x = side.x;
-    if (side.z !== undefined) player.position.z = side.z;
-    const normalVelocity =
-      player.velocity.x * side.nx + player.velocity.z * side.nz;
-    const intensity = Math.max(0, -normalVelocity);
-    if (normalVelocity < 0) {
-      player.velocity.x -= side.nx * normalVelocity * 1.28;
-      player.velocity.z -= side.nz * normalVelocity * 1.28;
-    }
-    if (intensity >= 7 && now - player.lastWallHit > 450) {
-      player.lastWallHit = now;
-      player.knockback = Math.min(
-        300,
-        player.knockback + Math.min(5, intensity * 0.28),
-      );
-      return { position: { ...player.position }, intensity };
-    }
+function resolveWalls(
+  player: SimPlayer,
+  from: Vec3,
+  intended: Vec3,
+  now: number,
+): StepResult["wallHit"] {
+  const result = sweepArenaWalls(from, intended);
+  player.position = result.position;
+  if (!result.contact) return undefined;
+  const { normal } = result.contact;
+  const normalVelocity =
+    player.velocity.x * normal.x + player.velocity.z * normal.z;
+  const intensity = Math.max(0, -normalVelocity);
+  if (normalVelocity < 0) {
+    player.velocity.x -= normal.x * normalVelocity;
+    player.velocity.z -= normal.z * normalVelocity;
   }
-  return undefined;
+  if (intensity < 7 || now - player.lastWallHit <= 450) return undefined;
+  player.lastWallHit = now;
+  player.knockback = Math.min(
+    300,
+    player.knockback + Math.min(5, intensity * 0.28),
+  );
+  return { position: { ...player.position }, intensity };
 }
 
 export function stepPlayer(
@@ -196,6 +185,7 @@ export function stepPlayer(
   if (player.respawnAt) return { knockedOut: false };
   player.protected = now < player.protectionUntil;
   player.yaw = player.input.yaw;
+  player.pitch = player.input.pitch;
   const wantsCharging =
     player.input.charging && !player.input.blocking && !player.blocking;
   if (wantsCharging && !player.charging) {
@@ -272,24 +262,38 @@ export function stepPlayer(
   let wallHit: StepResult["wallHit"];
   let floorContact = false;
   for (let step = 0; step < substeps; step++) {
-    const previousY = player.position.y;
-    player.position.x += (player.velocity.x * dt) / substeps;
-    player.position.y += (player.velocity.y * dt) / substeps;
-    player.position.z += (player.velocity.z * dt) / substeps;
+    const previous = { ...player.position };
+    const intended = {
+      x: previous.x + (player.velocity.x * dt) / substeps,
+      y: previous.y + (player.velocity.y * dt) / substeps,
+      z: previous.z + (player.velocity.z * dt) / substeps,
+    };
     const overPlatform =
-      Math.abs(player.position.x) < GAME.arenaHalfSize &&
-      Math.abs(player.position.z) < GAME.arenaHalfSize;
-    if (overPlatform && previousY >= 1.1 && player.position.y <= 1.1) {
-      player.position.y = 1.1;
+      Math.abs(intended.x) < GAME.arenaHalfSize &&
+      Math.abs(intended.z) < GAME.arenaHalfSize;
+    if (
+      overPlatform &&
+      previous.y >= PLAYER_HALF_HEIGHT &&
+      intended.y <= PLAYER_HALF_HEIGHT
+    ) {
+      intended.y = PLAYER_HALF_HEIGHT;
       player.velocity.y = 0;
       floorContact = true;
       player.airRecoveryAvailable = true;
-    } else if (overPlatform && previousY < 1.1 && player.velocity.y > 0) {
+    } else if (
+      overPlatform &&
+      previous.y < PLAYER_HALF_HEIGHT &&
+      player.velocity.y > 0
+    ) {
       // Prevent an air dash from phasing upward through the solid arena floor.
-      player.position.y = Math.min(player.position.y, 1.099);
+      intended.y = Math.min(intended.y, PLAYER_HALF_HEIGHT - 0.001);
       player.velocity.y = 0;
     }
-    if (now >= player.finisherUntil) wallHit ??= resolveWalls(player, now);
+    if (now < player.finisherUntil) player.position = intended;
+    else {
+      const impact = resolveWalls(player, previous, intended, now);
+      wallHit ??= impact;
+    }
   }
   player.grounded = floorContact;
   player.positionHistory.push({ time: now, position: { ...player.position } });
@@ -299,6 +303,208 @@ export function stepPlayer(
   )
     player.positionHistory.shift();
   return { knockedOut: player.position.y < GAME.deathHeight, wallHit };
+}
+
+function resolveSweptPlayerContact(
+  first: SimPlayer,
+  second: SimPlayer,
+  minimumDistance: number,
+): boolean {
+  const firstStart = first.positionHistory.at(-2)?.position ?? first.position;
+  const secondStart =
+    second.positionHistory.at(-2)?.position ?? second.position;
+  if (
+    Math.max(
+      Math.abs(firstStart.y - secondStart.y),
+      Math.abs(first.position.y - second.position.y),
+    ) >=
+    PLAYER_HALF_HEIGHT * 2
+  )
+    return false;
+  const relativeStart = {
+    x: secondStart.x - firstStart.x,
+    z: secondStart.z - firstStart.z,
+  };
+  const firstTravel = {
+    x: first.position.x - firstStart.x,
+    z: first.position.z - firstStart.z,
+  };
+  const secondTravel = {
+    x: second.position.x - secondStart.x,
+    z: second.position.z - secondStart.z,
+  };
+  const relativeTravel = {
+    x: secondTravel.x - firstTravel.x,
+    z: secondTravel.z - firstTravel.z,
+  };
+  const quadratic =
+    relativeTravel.x * relativeTravel.x + relativeTravel.z * relativeTravel.z;
+  if (quadratic < 1e-8) return false;
+  const linear =
+    2 *
+    (relativeStart.x * relativeTravel.x + relativeStart.z * relativeTravel.z);
+  const constant =
+    relativeStart.x * relativeStart.x +
+    relativeStart.z * relativeStart.z -
+    minimumDistance * minimumDistance;
+  if (constant <= 0 || linear >= 0) return false;
+  const discriminant = linear * linear - 4 * quadratic * constant;
+  if (discriminant < 0) return false;
+  const time = (-linear - Math.sqrt(discriminant)) / (2 * quadratic);
+  if (time < 0 || time > 1) return false;
+
+  const firstContact = {
+    x: firstStart.x + firstTravel.x * time,
+    z: firstStart.z + firstTravel.z * time,
+  };
+  const secondContact = {
+    x: secondStart.x + secondTravel.x * time,
+    z: secondStart.z + secondTravel.z * time,
+  };
+  const distance = Math.hypot(
+    secondContact.x - firstContact.x,
+    secondContact.z - firstContact.z,
+  );
+  if (distance < 1e-8) return false;
+  const normal = {
+    x: (secondContact.x - firstContact.x) / distance,
+    z: (secondContact.z - firstContact.z) / distance,
+  };
+  const firstRemaining = {
+    x: firstTravel.x * (1 - time),
+    z: firstTravel.z * (1 - time),
+  };
+  const secondRemaining = {
+    x: secondTravel.x * (1 - time),
+    z: secondTravel.z * (1 - time),
+  };
+  const closing =
+    (secondRemaining.x - firstRemaining.x) * normal.x +
+    (secondRemaining.z - firstRemaining.z) * normal.z;
+  if (closing >= 0) return false;
+  firstRemaining.x += normal.x * closing * 0.5;
+  firstRemaining.z += normal.z * closing * 0.5;
+  secondRemaining.x -= normal.x * closing * 0.5;
+  secondRemaining.z -= normal.z * closing * 0.5;
+  first.position.x = firstContact.x + firstRemaining.x;
+  first.position.z = firstContact.z + firstRemaining.z;
+  second.position.x = secondContact.x + secondRemaining.x;
+  second.position.z = secondContact.z + secondRemaining.z;
+  const relativeNormalVelocity =
+    (second.velocity.x - first.velocity.x) * normal.x +
+    (second.velocity.z - first.velocity.z) * normal.z;
+  if (relativeNormalVelocity < 0) {
+    const correctionVelocity = relativeNormalVelocity * 0.5;
+    first.velocity.x += normal.x * correctionVelocity;
+    first.velocity.z += normal.z * correctionVelocity;
+    second.velocity.x -= normal.x * correctionVelocity;
+    second.velocity.z -= normal.z * correctionVelocity;
+  }
+  return true;
+}
+
+export function resolvePlayerCollisions(
+  players: Iterable<SimPlayer>,
+  now = Date.now(),
+): void {
+  const active = [...players]
+    .filter(
+      (player) =>
+        !player.respawnAt &&
+        !player.eliminated &&
+        !player.protected &&
+        now >= player.finisherUntil &&
+        player.position.y > -PLAYER_HALF_HEIGHT,
+    )
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const minimumDistance = PLAYER_RADIUS * 2;
+  for (let pass = 0; pass < 3; pass++) {
+    let separated = false;
+    for (let firstIndex = 0; firstIndex < active.length; firstIndex++) {
+      const first = active[firstIndex]!;
+      for (
+        let secondIndex = firstIndex + 1;
+        secondIndex < active.length;
+        secondIndex++
+      ) {
+        const second = active[secondIndex]!;
+        if (
+          pass === 0 &&
+          resolveSweptPlayerContact(first, second, minimumDistance)
+        ) {
+          first.position = resolveArenaWallOverlaps(first.position).position;
+          second.position = resolveArenaWallOverlaps(second.position).position;
+          const firstHistory = first.positionHistory.at(-1);
+          const secondHistory = second.positionHistory.at(-1);
+          if (firstHistory) firstHistory.position = { ...first.position };
+          if (secondHistory) secondHistory.position = { ...second.position };
+          separated = true;
+        }
+        if (
+          Math.abs(first.position.y - second.position.y) >=
+          PLAYER_HALF_HEIGHT * 2
+        )
+          continue;
+        const dx = second.position.x - first.position.x;
+        const dz = second.position.z - first.position.z;
+        const distance = Math.hypot(dx, dz);
+        if (distance >= minimumDistance - 1e-6) continue;
+        const normal =
+          distance > 1e-6
+            ? { x: dx / distance, z: dz / distance }
+            : { x: 1, z: 0 };
+        const correction = (minimumDistance - distance) * 0.5;
+        first.position.x -= normal.x * correction;
+        first.position.z -= normal.z * correction;
+        second.position.x += normal.x * correction;
+        second.position.z += normal.z * correction;
+        first.position = resolveArenaWallOverlaps(first.position).position;
+        second.position = resolveArenaWallOverlaps(second.position).position;
+        let remainingSeparation = Math.max(
+          0,
+          minimumDistance -
+            ((second.position.x - first.position.x) * normal.x +
+              (second.position.z - first.position.z) * normal.z),
+        );
+        if (remainingSeparation > 1e-6) {
+          const before = { ...first.position };
+          first.position.x -= normal.x * remainingSeparation;
+          first.position.z -= normal.z * remainingSeparation;
+          first.position = resolveArenaWallOverlaps(first.position).position;
+          const gained = Math.max(
+            0,
+            -(
+              (first.position.x - before.x) * normal.x +
+              (first.position.z - before.z) * normal.z
+            ),
+          );
+          remainingSeparation = Math.max(0, remainingSeparation - gained);
+        }
+        if (remainingSeparation > 1e-6) {
+          second.position.x += normal.x * remainingSeparation;
+          second.position.z += normal.z * remainingSeparation;
+          second.position = resolveArenaWallOverlaps(second.position).position;
+        }
+        const firstHistory = first.positionHistory.at(-1);
+        const secondHistory = second.positionHistory.at(-1);
+        if (firstHistory) firstHistory.position = { ...first.position };
+        if (secondHistory) secondHistory.position = { ...second.position };
+
+        const relativeNormalVelocity =
+          (second.velocity.x - first.velocity.x) * normal.x +
+          (second.velocity.z - first.velocity.z) * normal.z;
+        if (relativeNormalVelocity < 0) {
+          const correctionVelocity = relativeNormalVelocity * 0.5;
+          first.velocity.x += normal.x * correctionVelocity;
+          first.velocity.z += normal.z * correctionVelocity;
+          second.velocity.x -= normal.x * correctionVelocity;
+          second.velocity.z -= normal.z * correctionVelocity;
+        }
+        separated = true;
+      }
+    }
+    if (!separated) break;
+  }
 }
 
 export function consumeHeavyCharge(
@@ -339,34 +545,8 @@ function historicalPosition(player: SimPlayer, targetTime: number): Vec3 {
   };
 }
 
-function blockingWall(from: Vec3, to: Vec3) {
-  for (const wall of ARENA_WALLS) {
-    if (Math.max(from.y, to.y) > wall.height + 1.1) continue;
-    let enter = 0,
-      exit = 1;
-    for (const [start, delta, min, max] of [
-      [from.x, to.x - from.x, wall.minX, wall.maxX],
-      [from.z, to.z - from.z, wall.minZ, wall.maxZ],
-    ] as number[][]) {
-      if (Math.abs(delta!) < 1e-8) {
-        if (start! < min! || start! > max!) {
-          enter = 2;
-          break;
-        }
-        continue;
-      }
-      const a = (min! - start!) / delta!,
-        b = (max! - start!) / delta!;
-      enter = Math.max(enter, Math.min(a, b));
-      exit = Math.min(exit, Math.max(a, b));
-    }
-    if (enter <= exit && exit >= 0 && enter <= 1) return wall;
-  }
-  return undefined;
-}
-
-function segmentCrossesWall(from: Vec3, to: Vec3): boolean {
-  return Boolean(blockingWall(from, to));
+function navigationWall(from: Vec3, to: Vec3) {
+  return sweepArenaWalls(from, to).contact?.wall;
 }
 
 export function botNavigationTarget(from: Vec3, requestedTarget: Vec3): Vec3 {
@@ -375,9 +555,9 @@ export function botNavigationTarget(from: Vec3, requestedTarget: Vec3): Vec3 {
     y: 1.1,
     z: Math.max(-13, Math.min(13, requestedTarget.z)),
   };
-  const wall = blockingWall(from, target);
+  const wall = navigationWall(from, target);
   if (!wall) return target;
-  const margin = PLAYER_RADIUS + 0.9;
+  const margin = PLAYER_RADIUS + 0.45;
   const corners = [
     { x: wall.minX - margin, y: 1.1, z: wall.minZ - margin },
     { x: wall.minX - margin, y: 1.1, z: wall.maxZ + margin },
@@ -387,7 +567,7 @@ export function botNavigationTarget(from: Vec3, requestedTarget: Vec3): Vec3 {
     (point) =>
       Math.abs(point.x) < 14 &&
       Math.abs(point.z) < 14 &&
-      !segmentCrossesWall(from, point),
+      !navigationWall(from, point),
   );
   return (
     corners.sort(
@@ -410,6 +590,7 @@ export function performAttack(
   requestedRewindMs = 0,
   knockbackMultiplier = 1,
   canHit: (target: SimPlayer) => boolean = () => true,
+  pitch = 0,
 ) {
   if (attacker.respawnAt || attacker.eliminated) return undefined;
   attacker.protectionUntil = 0;
@@ -418,15 +599,21 @@ export function performAttack(
     kind === "heavy" ? GAME.heavyCooldownMs : GAME.punchCooldownMs;
   if (now - attacker.lastAttack < cooldown) return undefined;
   attacker.lastAttack = now;
-  const fx = -Math.sin(yaw),
-    fz = -Math.cos(yaw);
+  const direction = attackDirection(yaw, pitch);
+  const horizontalLength = Math.max(
+    0.001,
+    Math.hypot(direction.x, direction.z),
+  );
+  const fx = direction.x / horizontalLength;
+  const fz = direction.z / horizontalLength;
   const rewindMs = Math.max(0, Math.min(150, requestedRewindMs));
   const targetTime = now - rewindMs;
   const attackerPosition = rewindMs
     ? historicalPosition(attacker, targetTime)
     : attacker.position;
   let target: SimPlayer | undefined;
-  let best = GAME.punchRange + (kind === "heavy" ? 0.35 : 0);
+  let targetHit: ReturnType<typeof attackTargetHit> = undefined;
+  let best = Number.POSITIVE_INFINITY;
   for (const candidate of players) {
     if (
       candidate.id === attacker.id ||
@@ -439,22 +626,20 @@ export function performAttack(
     const candidatePosition = rewindMs
       ? historicalPosition(candidate, targetTime)
       : candidate.position;
-    const dx = candidatePosition.x - attackerPosition.x;
-    const dz = candidatePosition.z - attackerPosition.z;
-    const centerDistance = Math.hypot(dx, dz);
-    const distance = Math.max(0, centerDistance - PLAYER_RADIUS * 0.65);
-    const facing = (dx * fx + dz * fz) / Math.max(centerDistance, 0.001);
-    if (
-      distance < best &&
-      facing > 0.27 &&
-      Math.abs(candidatePosition.y - attackerPosition.y) < 2.85 &&
-      !segmentCrossesWall(attackerPosition, candidatePosition)
-    ) {
+    const hit = attackTargetHit(
+      attackerPosition,
+      candidatePosition,
+      yaw,
+      pitch,
+      kind,
+    );
+    if (hit && hit.score < best) {
       target = candidate;
-      best = distance;
+      targetHit = hit;
+      best = hit.score;
     }
   }
-  if (!target) return undefined;
+  if (!target || !targetHit) return undefined;
   const parried = target.blocking && now - target.blockStarted < 190;
   const defended = target.blocking ? (parried ? 0.025 : 0.14) : 1;
   const safeCharge = kind === "heavy" ? Math.min(1, Math.max(0.15, charge)) : 0;
@@ -496,7 +681,7 @@ export function performAttack(
     now +
       (finisher ? 800 : (kind === "heavy" ? 210 : 120) * resistance * defended),
   );
-  if (finisher) target.finisherUntil = now + 650;
+  if (finisher) target.finisherUntil = now + GAME.finisherDurationMs;
   attacker.combo =
     attacker.comboTargetId === target.id && now - attacker.lastComboAt < 1_600
       ? attacker.combo + 1
@@ -507,7 +692,13 @@ export function performAttack(
     attacker.velocity.x -= fx * 3.5;
     attacker.velocity.z -= fz * 3.5;
   }
-  return { victim: target, parried, blocked: target.blocking, finisher };
+  return {
+    victim: target,
+    parried,
+    blocked: target.blocking,
+    finisher,
+    position: targetHit.point,
+  };
 }
 
 export function creditKnockout(

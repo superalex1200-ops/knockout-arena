@@ -52,4 +52,48 @@ describe("client protocol validation", () => {
       ),
     ).toMatchObject({ type: "join", roomCode: "ABC123" });
   });
+
+  it("accepts ordered aim input and rejects invalid aim metadata", () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: "input",
+          sequence: 7,
+          moveX: 0,
+          moveZ: -1,
+          yaw: 0.4,
+          pitch: -0.3,
+          jump: false,
+          dash: false,
+          blocking: false,
+          charging: false,
+        }),
+      ),
+    ).toMatchObject({ type: "input", sequence: 7, pitch: -0.3 });
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: "attack",
+          kind: "light",
+          charge: 0,
+          yaw: 0.4,
+          pitch: -0.3,
+          inputSequence: 7,
+          clientTime: Date.now(),
+        }),
+      ),
+    ).toMatchObject({ type: "attack", inputSequence: 7 });
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: "attack",
+          kind: "light",
+          charge: 0,
+          yaw: 0,
+          inputSequence: 1.5,
+          clientTime: Date.now(),
+        }),
+      ),
+    ).toBeUndefined();
+  });
 });

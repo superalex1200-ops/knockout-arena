@@ -48,4 +48,18 @@ describe("combat HUD state", () => {
     expect(isPunchTargetValid(local, teammate, 0, false)).toBe(false);
     expect(isPunchTargetValid(local, teammate, 0, true)).toBe(true);
   });
+  it("tracks pitch and rejects peripheral targets outside the glove sweep", () => {
+    const local = player("a", 0, 0);
+    const airborne = player("b", 0, -2.5);
+    airborne.position.y = 3.6;
+    expect(isPunchTargetValid(local, airborne, 0, true, 0)).toBe(false);
+    expect(isPunchTargetValid(local, airborne, 0, true, 0.68)).toBe(true);
+    expect(isPunchTargetValid(local, player("c", 3.1, -1.05), 0)).toBe(false);
+  });
+  it("previews the charged heavy-only reach band", () => {
+    const local = player("a", 0, 0);
+    const distant = player("b", 0, -3.9);
+    expect(isPunchTargetValid(local, distant, 0, true, 0, "light")).toBe(false);
+    expect(isPunchTargetValid(local, distant, 0, true, 0, "heavy")).toBe(true);
+  });
 });

@@ -71,6 +71,25 @@ describe("MovementPredictor", () => {
     predictor.update(1 / 30, 0, -1, 0);
     expect(predictor.position.z).toBeLessThan(-0.5);
   });
+  it("matches the authoritative wall bypass during a finisher launch", () => {
+    const predictor = new MovementPredictor();
+    predictor.reconcile({ ...snapshot(-7.7, 0), finisher: true });
+    predictor.setEnabled(true);
+    predictor.triggerDash(0, -1, Math.PI / 2);
+    predictor.update(0.2, 0, -1, Math.PI / 2);
+    expect(predictor.position.x).toBeLessThan(-9.6);
+  });
+  it("predicts the same half-separation used for fighter body collision", () => {
+    const predictor = new MovementPredictor();
+    const local = snapshot(0, 0);
+    const target = { ...snapshot(0, 0), id: "z" };
+    predictor.reconcile(local);
+    predictor.setEnabled(true);
+    predictor.resolvePlayerCollisions(local, [local, target]);
+    expect(predictor.position.x).toBeCloseTo(-0.55);
+    predictor.resolvePlayerCollisions(local, [local, target]);
+    expect(predictor.position.x).toBeCloseTo(-0.55);
+  });
   it("adopts authoritative launch velocity without a lagging correction", () => {
     const predictor = new MovementPredictor();
     predictor.reconcile(snapshot(0, 0));

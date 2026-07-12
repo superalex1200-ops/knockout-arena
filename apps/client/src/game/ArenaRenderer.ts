@@ -9,6 +9,7 @@ import type { GameSocket } from "../network";
 import { AudioSystem } from "./AudioSystem";
 import type { GameSettings } from "../settings";
 import { MovementPredictor } from "./MovementPredictor";
+import { createArenaWorld } from "./ArenaWorld";
 import {
   cooldownReadiness,
   isPunchTargetValid,
@@ -66,6 +67,7 @@ export class ArenaRenderer {
       kind: "light" | "heavy";
       side: -1 | 1;
       charge: number;
+      pitch: number;
     }
   >();
   private remoteAttackSides = new Map<string, -1 | 1>();
@@ -81,8 +83,7 @@ export class ArenaRenderer {
   private activeFist = 0;
   private punchTime = 0;
   private punchDuration = 0.22;
-  private lastLightPunch = 0;
-  private lastHeavyPunch = 0;
+  private lastAttack = 0;
   private dashEffect = 0;
   private lastDashEffect = Number.NEGATIVE_INFINITY;
   private blockStartedAt = 0;
@@ -149,108 +150,9 @@ export class ArenaRenderer {
   }
 
   private buildWorld(): void {
-    this.scene.background = new THREE.Color(0x060914);
-    this.scene.fog = new THREE.FogExp2(0x071024, 0.014);
-    this.scene.add(new THREE.HemisphereLight(0x8fbcff, 0x111424, 2.2));
-    const sun = new THREE.DirectionalLight(0xffffff, 3.2);
-    sun.position.set(8, 18, 7);
-    sun.castShadow = this.settings.graphics === "high";
-    this.scene.add(sun);
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(30, 1.8, 30),
-      new THREE.MeshStandardMaterial({
-        color: 0x151b32,
-        roughness: 0.55,
-        metalness: 0.34,
-      }),
-    );
-    floor.position.y = -0.9;
-    floor.receiveShadow = this.settings.graphics === "high";
-    this.scene.add(floor);
-    const grid = new THREE.GridHelper(30, 30, 0x22e7ff, 0x26304d);
-    grid.position.y = 0.02;
-    this.scene.add(grid);
-    const edgeMat = new THREE.MeshStandardMaterial({
-      color: 0x00d9ff,
-      emissive: 0x008eb8,
-      emissiveIntensity: 3,
-    });
-    for (const [x, z, sx, sz] of [
-      [0, -15, 30, 0.16],
-      [0, 15, 30, 0.16],
-      [-15, 0, 0.16, 30],
-      [15, 0, 0.16, 30],
-    ] as number[][]) {
-      const edge = new THREE.Mesh(
-        new THREE.BoxGeometry(sx!, 0.13, sz!),
-        edgeMat,
-      );
-      edge.position.set(x!, 0.12, z!);
-      this.scene.add(edge);
-    }
-    for (const [x, z, h] of [
-      [-9, 0, 3.2],
-      [9, 0, 3.2],
-      [0, -9, 2.2],
-      [0, 9, 2.2],
-    ] as number[][]) {
-      const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(x === 0 ? 7 : 1.2, h!, x === 0 ? 1.2 : 7),
-        new THREE.MeshStandardMaterial({
-          color: 0x303958,
-          metalness: 0.45,
-          roughness: 0.35,
-          emissive: 0x071126,
-        }),
-      );
-      wall.position.set(x!, h! / 2, z!);
-      this.scene.add(wall);
-    }
-    const under = new THREE.Mesh(
-      new THREE.CylinderGeometry(21, 26, 8, 8),
-      new THREE.MeshStandardMaterial({
-        color: 0x0d1327,
-        metalness: 0.8,
-        roughness: 0.25,
-      }),
-    );
-    under.position.y = -5;
-    this.scene.add(under);
-    const centerRing = new THREE.Mesh(
-      new THREE.TorusGeometry(4.2, 0.055, 8, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0xff3e76,
-        transparent: true,
-        opacity: 0.55,
-      }),
-    );
-    centerRing.rotation.x = Math.PI / 2;
-    centerRing.position.y = 0.045;
-    this.scene.add(centerRing);
-    for (const [x, z, color] of [
-      [-13, -13, 0x3eeaff],
-      [13, -13, 0xff3e76],
-      [-13, 13, 0xff3e76],
-      [13, 13, 0x3eeaff],
-    ] as number[][]) {
-      const pylon = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.14, 0.3, 3.8, 8),
-        new THREE.MeshStandardMaterial({
-          color: 0x141a31,
-          emissive: color!,
-          emissiveIntensity: 0.55,
-          metalness: 0.75,
-          roughness: 0.3,
-        }),
-      );
-      pylon.position.set(x!, 1.9, z!);
-      this.scene.add(pylon);
-      if (this.settings.graphics !== "low") {
-        const light = new THREE.PointLight(color!, 2.8, 10, 2);
-        light.position.set(x!, 3.6, z!);
-        this.scene.add(light);
-      }
-    }
+    this.scene.background = new THREE.Color(0x08091c);
+    this.scene.fog = new THREE.FogExp2(0x0a1027, 0.0095);
+    this.scene.add(createArenaWorld(this.settings.graphics));
     this.fists = [createFirstPersonGlove(-1), createFirstPersonGlove(1)];
     for (const fist of this.fists) this.camera.add(fist);
     this.scene.add(this.camera);
@@ -308,14 +210,26 @@ export class ArenaRenderer {
           kind: message.kind,
           side,
           charge: message.charge,
+          pitch: message.pitch ?? 0,
         });
       }
       if (message.type === "hit") {
         if (message.attackerId === this.playerId) this.punchTime = 0.12;
-        if (message.victimId === this.playerId)
+        if (message.victimId === this.playerId) {
           this.impactKick = message.kind === "heavy" ? 1 : 0.55;
-        const victim = this.snapshots.get(message.victimId);
-        if (victim) this.spawnImpact(victim.position, message.kind === "heavy");
+          if (message.finisher)
+            this.predictor.triggerFinisher(
+              message.finisherDurationMs ?? GAME.finisherDurationMs,
+            );
+        }
+        const victimPosition = this.snapshots.get(message.victimId)?.position;
+        const impactPosition =
+          message.position ??
+          (victimPosition
+            ? { ...victimPosition, y: victimPosition.y + 0.7 }
+            : undefined);
+        if (impactPosition)
+          this.spawnImpact(impactPosition, message.kind === "heavy");
         this.audio.playHit(message.parried || message.blocked);
       }
       if (message.type === "hit" && message.attackerId === this.playerId)
@@ -462,8 +376,8 @@ export class ArenaRenderer {
       if (e.button === 2 && this.rules.heavyEnabled && !this.input.block) {
         const now = performance.now();
         if (
-          this.lastHeavyPunch === 0 ||
-          now - this.lastHeavyPunch >= GAME.heavyCooldownMs
+          this.lastAttack === 0 ||
+          now - this.lastAttack >= GAME.heavyCooldownMs
         ) {
           this.activeFist = 1 - this.activeFist;
           this.chargeStart = now;
@@ -522,30 +436,55 @@ export class ArenaRenderer {
     };
   }
   private cleanup = () => {};
+  private sendInputFrame(
+    moveX: number,
+    moveZ: number,
+    spectating: boolean,
+  ): number {
+    const sequence = this.sequence++;
+    this.predictor.recordInput(sequence);
+    if (!spectating && this.input.dash)
+      this.predictor.triggerDash(moveX, moveZ, this.yaw);
+    this.socket.send({
+      type: "input",
+      sequence,
+      moveX: spectating ? 0 : moveX,
+      moveZ: spectating ? 0 : moveZ,
+      yaw: this.yaw,
+      pitch: this.pitch,
+      jump: spectating ? false : this.input.jump,
+      dash: spectating ? false : this.input.dash,
+      blocking: spectating ? false : this.input.block,
+      charging: spectating ? false : this.input.charging,
+    });
+    this.input.jump = false;
+    this.input.dash = false;
+    return sequence;
+  }
   private attack(kind: "light" | "heavy", charge: number): void {
     if (kind === "heavy" && !this.rules.heavyEnabled) return;
     const now = performance.now();
-    if (
-      (kind === "light" &&
-        this.lastLightPunch > 0 &&
-        now - this.lastLightPunch < GAME.punchCooldownMs) ||
-      (kind === "heavy" &&
-        this.lastHeavyPunch > 0 &&
-        now - this.lastHeavyPunch < GAME.heavyCooldownMs)
-    )
-      return;
-    if (kind === "light") this.lastLightPunch = now;
-    else this.lastHeavyPunch = now;
+    const cooldown =
+      kind === "light" ? GAME.punchCooldownMs : GAME.heavyCooldownMs;
+    if (this.lastAttack > 0 && now - this.lastAttack < cooldown) return;
+    this.lastAttack = now;
     if (kind === "light") this.activeFist = 1 - this.activeFist;
     this.punchDuration = kind === "heavy" ? 0.32 : 0.22;
     this.punchTime = this.punchDuration;
     this.onTutorialAction(kind === "heavy" ? "heavy" : "punch");
     this.audio.playPunch(kind === "heavy");
+    const inputSequence = this.sendInputFrame(
+      Number(this.input.right) - Number(this.input.left),
+      Number(this.input.back) - Number(this.input.forward),
+      false,
+    );
     this.socket.send({
       type: "attack",
       kind,
       charge,
       yaw: this.yaw,
+      pitch: this.pitch,
+      inputSequence,
       clientTime: Date.now(),
     });
   }
@@ -640,7 +579,7 @@ export class ArenaRenderer {
           transparent: true,
         }),
       );
-      mesh.position.set(position.x, position.y + 0.7, position.z);
+      mesh.position.set(position.x, position.y, position.z);
       this.scene.add(mesh);
       this.effects.push({
         mesh,
@@ -695,7 +634,7 @@ export class ArenaRenderer {
           depthWrite: false,
         }),
       );
-      ring.position.set(position.x, position.y + 0.8, position.z);
+      ring.position.set(position.x, position.y + 0.1, position.z);
       ring.rotation.x = Math.PI / 2;
       this.scene.add(ring);
       this.effects.push({
@@ -745,6 +684,9 @@ export class ArenaRenderer {
     }
     if (hudNow - this.lastHudEmit >= 50) {
       this.lastHudEmit = hudNow;
+      const targetingLocal = local
+        ? { ...local, position: { ...this.predictor.position } }
+        : undefined;
       this.onCombatHud({
         dashReady: cooldownReadiness(
           this.lastDashEffect,
@@ -752,12 +694,12 @@ export class ArenaRenderer {
           hudNow,
         ),
         lightReady: cooldownReadiness(
-          this.lastLightPunch,
+          this.lastAttack,
           GAME.punchCooldownMs,
           hudNow,
         ),
         heavyReady: cooldownReadiness(
-          this.lastHeavyPunch,
+          this.lastAttack,
           GAME.heavyCooldownMs,
           hudNow,
         ),
@@ -767,14 +709,16 @@ export class ArenaRenderer {
         blocking: this.input.block,
         parryActive: this.input.block && hudNow - this.blockStartedAt < 190,
         validTarget:
-          !!local &&
+          !!targetingLocal &&
           !spectating &&
           [...this.snapshots.values()].some((target) =>
             isPunchTargetValid(
-              local,
+              targetingLocal,
               target,
               this.yaw,
               this.rules.gameMode !== "team" || this.rules.friendlyFire,
+              this.pitch,
+              this.chargeStart ? "heavy" : "light",
             ),
           ),
         dashEnabled: this.rules.dashEnabled,
@@ -782,7 +726,11 @@ export class ArenaRenderer {
         blockEnabled: this.rules.blockEnabled,
       });
     }
-    if (!spectating) this.predictor.update(dt, moveX, moveZ, this.yaw);
+    if (!spectating) {
+      this.predictor.update(dt, moveX, moveZ, this.yaw);
+      if (local)
+        this.predictor.resolvePlayerCollisions(local, this.snapshots.values());
+    }
     if (spectating) {
       const watched =
         this.snapshots.get(this.spectatorTargetId) ??
@@ -841,7 +789,7 @@ export class ArenaRenderer {
         new THREE.Vector3(p.position.x, p.position.y - 1.1, p.position.z),
         1 -
           Math.exp(
-            -dt * (Math.hypot(p.velocity.x, p.velocity.z) > 12 ? 18 : 12),
+            -dt * (Math.hypot(p.velocity.x, p.velocity.z) > 12 ? 26 : 16),
           ),
       );
       const turnDelta = Math.atan2(
@@ -874,14 +822,15 @@ export class ArenaRenderer {
         const isCharging =
           !attack && p.charging && chargingSide === side && !p.blocking;
         const reach =
-          attack?.kind === "heavy" ? 0.72 + attack.charge * 0.28 : 0.62;
+          attack?.kind === "heavy" ? 1.12 + attack.charge * 0.25 : 0.95;
         const target = fighterRestHandPosition(side);
         if (p.blocking) target.set(side * 0.29, 1.56, -0.48);
         else if (isCharging) target.set(side * 0.48, 1.07, 0.12);
         if (isAttacking) {
+          const pitch = attack?.pitch ?? 0;
           target.x += side * attackPhase * 0.06;
-          target.y += attackPhase * 0.08;
-          target.z -= attackPhase * reach;
+          target.y += attackPhase * (0.08 + Math.sin(pitch) * reach);
+          target.z -= attackPhase * Math.cos(pitch) * reach;
         }
         glove.position.lerp(target, Math.min(1, dt * 16));
         const targetRotationX = p.blocking
@@ -980,22 +929,7 @@ export class ArenaRenderer {
     this.inputAccumulator += dt;
     if (this.inputAccumulator >= 1 / 30) {
       this.inputAccumulator %= 1 / 30;
-      const sequence = this.sequence++;
-      this.predictor.recordInput(sequence);
-      if (this.input.dash) this.predictor.triggerDash(moveX, moveZ, this.yaw);
-      this.socket.send({
-        type: "input",
-        sequence,
-        moveX: spectating ? 0 : moveX,
-        moveZ: spectating ? 0 : moveZ,
-        yaw: this.yaw,
-        jump: spectating ? false : this.input.jump,
-        dash: spectating ? false : this.input.dash,
-        blocking: spectating ? false : this.input.block,
-        charging: spectating ? false : this.input.charging,
-      });
-      this.input.jump = false;
-      this.input.dash = false;
+      this.sendInputFrame(moveX, moveZ, spectating);
     }
     this.renderer.render(this.scene, this.camera);
     this.frame = requestAnimationFrame(this.loop);

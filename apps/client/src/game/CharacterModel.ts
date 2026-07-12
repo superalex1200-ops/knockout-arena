@@ -167,7 +167,7 @@ export const firstPersonGlovePose = ({
     position: new THREE.Vector3(
       side * (restX - (punching ? punchPhase * 0.22 : 0)) + handSway,
       restY + handBob + (punching ? punchPhase * 0.18 : 0),
-      restZ - (punching ? punchPhase * 0.64 : 0),
+      restZ - (punching ? punchPhase * 0.9 : 0),
     ),
     rotationX: -0.04 - (punching ? punchPhase * 0.04 : 0),
     rotationZ: side * (0.06 - (punching ? punchPhase * 0.1 : 0)),

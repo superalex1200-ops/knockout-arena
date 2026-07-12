@@ -25,6 +25,7 @@ import {
   creditKnockout,
   performAttack,
   respawn,
+  resolvePlayerCollisions,
   stepPlayer,
   type SimPlayer,
 } from "./simulation.js";
@@ -442,7 +443,11 @@ wss.on("connection", (socket) => {
         });
       }
     } else if (msg.type === "input") {
-      if (![msg.moveX, msg.moveZ, msg.yaw].every(Number.isFinite)) return;
+      if (
+        ![msg.moveX, msg.moveZ, msg.yaw].every(Number.isFinite) ||
+        (msg.pitch !== undefined && !Number.isFinite(msg.pitch))
+      )
+        return;
       if (
         !Number.isSafeInteger(msg.sequence) ||
         msg.sequence <= player.lastProcessedInput
@@ -462,6 +467,10 @@ wss.on("connection", (socket) => {
         moveX: Math.max(-1, Math.min(1, msg.moveX)),
         moveZ: Math.max(-1, Math.min(1, msg.moveZ)),
         yaw: msg.yaw,
+        pitch: Math.max(
+          -1.2,
+          Math.min(1.2, msg.pitch ?? player.input.pitch ?? 0),
+        ),
         jump: !!msg.jump,
         dash: room.rules.dashEnabled && !!msg.dash,
         blocking: room.rules.blockEnabled && !!msg.blocking && !msg.charging,
@@ -473,10 +482,18 @@ wss.on("connection", (socket) => {
       (msg.kind === "light" || msg.kind === "heavy") &&
       Number.isFinite(msg.charge) &&
       Number.isFinite(msg.yaw) &&
+      (msg.pitch === undefined || Number.isFinite(msg.pitch)) &&
       Number.isFinite(msg.clientTime)
     ) {
       const now = Date.now();
-      const rewindMs = Math.max(0, Math.min(150, now - msg.clientTime));
+      if (
+        msg.inputSequence !== undefined &&
+        msg.inputSequence > player.lastProcessedInput
+      )
+        return;
+      const rewindMs = Math.min(75, 1000 / GAME.snapshotRate);
+      const attackYaw = player.input.yaw;
+      const attackPitch = player.input.pitch;
       if (msg.kind === "heavy" && !room.rules.heavyEnabled) return;
       if (msg.kind === "light" && (player.blocking || player.charging)) return;
       const verifiedCharge =
@@ -488,7 +505,7 @@ wss.on("connection", (socket) => {
         room.players.values(),
         msg.kind,
         verifiedCharge ?? 0,
-        msg.yaw,
+        attackYaw,
         now,
         rewindMs,
         room.rules.knockbackMultiplier,
@@ -497,6 +514,7 @@ wss.on("connection", (socket) => {
           room.rules.friendlyFire ||
           !player.team ||
           candidate.team !== player.team,
+        attackPitch,
       );
       if (player.lastAttack !== previousAttackAt)
         broadcast(room, {
@@ -504,6 +522,7 @@ wss.on("connection", (socket) => {
           attackerId: player.id,
           kind: msg.kind,
           charge: verifiedCharge ?? 0,
+          pitch: attackPitch,
         });
       if (result)
         broadcast(room, {
@@ -516,6 +535,10 @@ wss.on("connection", (socket) => {
           finisher: result.finisher,
           knockback: result.victim.knockback,
           combo: player.combo,
+          position: result.position,
+          finisherDurationMs: result.finisher
+            ? GAME.finisherDurationMs
+            : undefined,
         });
     }
   });
@@ -656,11 +679,14 @@ setInterval(() => {
             player.input.moveX = Math.sin(now / 900) * 0.45;
           if (room.trainingBotMode === "aggressive") {
             player.input.moveZ =
-              navigatingAroundWall || distance > 2.8 ? -0.48 : 0;
+              navigatingAroundWall || distance > GAME.punchRange - 0.35
+                ? -0.48
+                : 0;
             const attackYaw = Math.atan2(-dx, -dz);
             const previousAttackAt = player.lastAttack;
             const attack =
-              distance < GAME.punchRange && now - player.lastAttack >= 950
+              distance < GAME.punchRange - 0.05 &&
+              now - player.lastAttack >= 950
                 ? performAttack(
                     player,
                     room.players.values(),
@@ -678,6 +704,7 @@ setInterval(() => {
                 attackerId: player.id,
                 kind: "light",
                 charge: 0,
+                pitch: 0,
               });
             if (attack)
               broadcast(room, {
@@ -690,6 +717,10 @@ setInterval(() => {
                 finisher: attack.finisher,
                 knockback: attack.victim.knockback,
                 combo: player.combo,
+                position: attack.position,
+                finisherDurationMs: attack.finisher
+                  ? GAME.finisherDurationMs
+                  : undefined,
               });
           }
           if (room.trainingBotMode === "blocking") {
@@ -728,6 +759,8 @@ setInterval(() => {
       }
       index++;
     }
+    if (room.phase === "playing")
+      resolvePlayerCollisions(room.players.values(), now);
     if (
       room.phase === "playing" &&
       room.mode === "private" &&
@@ -748,10 +781,11 @@ setInterval(() => {
 }, 1000 / GAME.tickRate);
 
 setInterval(() => {
+  const snapshotTime = Date.now();
   for (const room of rooms.values())
     broadcast(room, {
       type: "snapshot",
-      serverTime: Date.now(),
+      serverTime: snapshotTime,
       matchId: room.matchId,
       matchStartedAt: room.matchStartedAt,
       phase: room.phase,
@@ -783,7 +817,11 @@ setInterval(() => {
           finisherUntil: _fi,
           positionHistory: _ph,
           ...snapshot
-        }) => snapshot,
+        }) => ({
+          ...snapshot,
+          finisher: snapshotTime < _fi,
+          finisherRemainingMs: Math.max(0, _fi - snapshotTime),
+        }),
       ),
     });
 }, 1000 / GAME.snapshotRate);
