@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_MATCH_RULES,
   PROTOCOL_VERSION,
+  TRAINING_MAX_KNOCKBACK,
   type MatchMode,
   type MatchPhase,
   type MatchRules,
   type PlayerSnapshot,
   type ServerMessage,
   type TrainingBotMode,
+  type TrainingLabSnapshot,
 } from "@knockout/shared";
 import { GameSocket } from "./network";
-import { ArenaRenderer, type TutorialAction } from "./game/ArenaRenderer";
+import { ArenaRenderer } from "./game/ArenaRenderer";
 import type { GameSettings } from "./settings";
 import type { MatchHistoryEntry } from "./profile";
 import { SettingsPanel } from "./SettingsPanel";
@@ -21,6 +23,14 @@ import {
   loadReconnectToken,
   saveGameSession,
 } from "./gameSession";
+import {
+  loadTrainingPreferences,
+  markTutorialDone,
+  resetTutorialProgress,
+  saveTrainingPreferences,
+  type TrainingPreferences,
+  type TutorialAction,
+} from "./training";
 
 type Props = {
   name: string;
@@ -72,11 +82,17 @@ export function Game({
     Array<{ playerId: string; name: string; text: string; sentAt: number }>
   >([]);
   const [ping, setPing] = useState<number | null>(null);
-  const [tutorialDone, setTutorialDone] = useState<Set<TutorialAction>>(
-    () => new Set(),
+  const [trainingPreferences, setTrainingPreferences] =
+    useState<TrainingPreferences>(loadTrainingPreferences);
+  const trainingPreferencesRef = useRef(trainingPreferences);
+  const tutorialDone = new Set(trainingPreferences.tutorialDone);
+  const [trainingBotMode, setTrainingBotMode] = useState<TrainingBotMode>(
+    trainingPreferences.botMode,
   );
-  const [trainingBotMode, setTrainingBotMode] =
-    useState<TrainingBotMode>("aggressive");
+  const [trainingLab, setTrainingLab] = useState<TrainingLabSnapshot>({
+    baselineKnockback: trainingPreferences.baselineKnockback,
+    lastHit: null,
+  });
   const [rules, setRules] = useState<MatchRules>({ ...DEFAULT_MATCH_RULES });
   const [spectatorTargetId, setSpectatorTargetId] = useState("");
   const [paused, setPaused] = useState(false);
@@ -91,6 +107,17 @@ export function Game({
   const feedIdRef = useRef(0);
   const rendererRef = useRef<ArenaRenderer | null>(null);
   const initialSettingsRef = useRef(settings);
+  const persistTrainingPreferences = useCallback(
+    (update: (current: TrainingPreferences) => TrainingPreferences): void => {
+      const current = trainingPreferencesRef.current;
+      const next = update(current);
+      if (next === current) return;
+      trainingPreferencesRef.current = next;
+      setTrainingPreferences(next);
+      saveTrainingPreferences(next);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -113,6 +140,17 @@ export function Game({
             message.roomCode,
             message.reconnectToken,
           );
+          if (message.roomMode === "training") {
+            const preferences = trainingPreferencesRef.current;
+            socket.send({
+              type: "setTrainingBotMode",
+              mode: preferences.botMode,
+            });
+            socket.send({
+              type: "setTrainingKnockback",
+              value: preferences.baselineKnockback,
+            });
+          }
           const nextUrl = new URL(location.href);
           if (message.roomMode === "private")
             nextUrl.searchParams.set("room", message.roomCode);
@@ -138,6 +176,23 @@ export function Game({
             message.players.map((player) => [player.id, player]),
           );
           setTrainingBotMode(message.trainingBotMode);
+          if (message.roomMode === "training" && message.training) {
+            setTrainingLab(message.training);
+            persistTrainingPreferences((current) => {
+              const nextMode = message.trainingBotMode;
+              const nextBaseline = message.training!.baselineKnockback;
+              if (
+                current.botMode === nextMode &&
+                current.baselineKnockback === nextBaseline
+              )
+                return current;
+              return {
+                ...current,
+                botMode: nextMode,
+                baselineKnockback: nextBaseline,
+              };
+            });
+          }
           setRules(message.rules);
           if (
             message.phase === "results" &&
@@ -240,10 +295,12 @@ export function Game({
         if (local) setMe({ ...local });
       },
       initialSettingsRef.current,
-      (action) =>
-        setTutorialDone((current) =>
-          current.has(action) ? current : new Set(current).add(action),
-        ),
+      (action) => {
+        if (mode !== "training") return;
+        persistTrainingPreferences((current) =>
+          markTutorialDone(current, action),
+        );
+      },
       () => setPaused(true),
       setCombatHud,
       (action, active) => {
@@ -283,7 +340,14 @@ export function Game({
       renderer.dispose();
       socket.close();
     };
-  }, [createRoom, mode, name, onMatchComplete, roomCode]);
+  }, [
+    createRoom,
+    mode,
+    name,
+    onMatchComplete,
+    persistTrainingPreferences,
+    roomCode,
+  ]);
 
   useEffect(() => {
     rendererRef.current?.applySettings(settings);
@@ -325,6 +389,31 @@ export function Game({
   };
   const updateRules = (patch: Partial<MatchRules>) =>
     socketRef.current?.send({ type: "updateRules", patch });
+  const updateTrainingBotMode = (next: TrainingBotMode) => {
+    setTrainingBotMode(next);
+    persistTrainingPreferences((current) => ({
+      ...current,
+      botMode: next,
+    }));
+    socketRef.current?.send({ type: "setTrainingBotMode", mode: next });
+  };
+  const updateTrainingBaseline = (requested: number) => {
+    const value = Math.max(
+      0,
+      Math.min(TRAINING_MAX_KNOCKBACK, Math.round(requested)),
+    );
+    setTrainingLab((current) => ({
+      ...current,
+      baselineKnockback: value,
+    }));
+    persistTrainingPreferences((current) => ({
+      ...current,
+      baselineKnockback: value,
+    }));
+    socketRef.current?.send({ type: "setTrainingKnockback", value });
+  };
+  const resetTrainingSteps = () =>
+    persistTrainingPreferences(resetTutorialProgress);
   const activeSpectators = players.filter(
     (player) => !player.eliminated && !player.bot && player.id !== me?.id,
   );
@@ -369,6 +458,7 @@ export function Game({
   const votedForRematch = Boolean(me && rematchVotes.includes(me.id));
   const stockBattle = effectiveMode === "private" && rules.gameMode === "stock";
   const teamBattle = effectiveMode === "private" && rules.gameMode === "team";
+  const trainingDummy = players.find((player) => player.bot);
   const teamScores = {
     red: players
       .filter((player) => player.team === "red")
@@ -827,10 +917,13 @@ export function Game({
         <TutorialPanel
           done={tutorialDone}
           botMode={trainingBotMode}
+          training={trainingLab}
+          dummyKnockback={trainingDummy?.knockback ?? 0}
           settings={settings}
-          setBotMode={(next) =>
-            socketRef.current?.send({ type: "setTrainingBotMode", mode: next })
-          }
+          setBotMode={updateTrainingBotMode}
+          setBaseline={updateTrainingBaseline}
+          resetDummy={() => socketRef.current?.send({ type: "resetTraining" })}
+          resetSteps={resetTrainingSteps}
         />
       )}
       {paused && !pauseSettings && (
@@ -1049,13 +1142,23 @@ const botModes: Array<{ value: TrainingBotMode; label: string }> = [
 function TutorialPanel({
   done,
   botMode,
+  training,
+  dummyKnockback,
   settings,
   setBotMode,
+  setBaseline,
+  resetDummy,
+  resetSteps,
 }: {
   done: Set<TutorialAction>;
   botMode: TrainingBotMode;
+  training: TrainingLabSnapshot;
+  dummyKnockback: number;
   settings: GameSettings;
   setBotMode: (mode: TrainingBotMode) => void;
+  setBaseline: (value: number) => void;
+  resetDummy: () => void;
+  resetSteps: () => void;
 }) {
   const labels: Partial<Record<TutorialAction, string>> = {
     move: `Mit ${formatKey(settings.bindings.forward)}/${formatKey(settings.bindings.left)}/${formatKey(settings.bindings.back)}/${formatKey(settings.bindings.right)} bewegen`,
@@ -1063,9 +1166,14 @@ function TutorialPanel({
     dash: `Mit ${formatKey(settings.bindings.dash)} ausweichen`,
     block: `Mit ${formatKey(settings.bindings.block)} blocken/parieren`,
   };
+  const metrics = training.lastHit;
+  const metric = (value: number | undefined, suffix: string) =>
+    value === undefined || !Number.isFinite(value)
+      ? "—"
+      : `${value.toFixed(1)}${suffix}`;
   return (
     <aside className="tutorial-panel">
-      <p>TRAINING</p>
+      <p>TRAINING LAB</p>
       <h3>
         {done.size}/{tutorialSteps.length} SCHRITTE
       </h3>
@@ -1080,7 +1188,66 @@ function TutorialPanel({
           </button>
         ))}
       </div>
-      <div>
+      <section className="training-lab-controls">
+        <div className="training-readout">
+          <span>
+            <small>STARTWERT</small>
+            <b>{Math.round(training.baselineKnockback)}%</b>
+          </span>
+          <span>
+            <small>AKTUELL</small>
+            <b>{Math.round(dummyKnockback)}%</b>
+          </span>
+        </div>
+        <label className="training-slider">
+          <span>START-KNOCKBACK</span>
+          <input
+            aria-label="Start-Knockback"
+            type="range"
+            min={0}
+            max={TRAINING_MAX_KNOCKBACK}
+            step={5}
+            value={training.baselineKnockback}
+            onChange={(event) => setBaseline(Number(event.target.value))}
+          />
+        </label>
+        <div className="training-presets" aria-label="Knockback-Schnellwahl">
+          {[0, 50, 100, 150, 200].map((value) => (
+            <button
+              className={training.baselineKnockback === value ? "active" : ""}
+              key={value}
+              onClick={() => setBaseline(value)}
+            >
+              {value}%
+            </button>
+          ))}
+        </div>
+        <div className="training-metrics">
+          <span>
+            <small>KRAFT</small>
+            <b>{metric(metrics?.force, "")}</b>
+          </span>
+          <span>
+            <small>WINKEL</small>
+            <b>{metric(metrics?.launchAngleDegrees, "°")}</b>
+          </span>
+          <span>
+            <small>TEMPO</small>
+            <b>{metric(metrics?.launchSpeed, " m/s")}</b>
+          </span>
+          <span>
+            <small>DISTANZ</small>
+            <b>{metric(metrics?.flightDistance, " m")}</b>
+          </span>
+        </div>
+        <div className="training-actions">
+          <button onClick={resetDummy}>DUMMY RESET</button>
+          <button disabled={done.size === 0} onClick={resetSteps}>
+            SCHRITTE RESET
+          </button>
+        </div>
+      </section>
+      <div className="tutorial-steps">
         {tutorialSteps.map((step) => (
           <span
             className={done.has(step.action) ? "done" : ""}

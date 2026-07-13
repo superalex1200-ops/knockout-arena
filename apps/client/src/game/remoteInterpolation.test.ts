@@ -51,6 +51,14 @@ describe("remote fighter interpolation", () => {
     expect(shouldSnapRemoteFighter(previous, current, false)).toBe(true);
   });
 
+  it("snaps an explicit short-range teleport without spawn protection", () => {
+    const current = {
+      ...snapshot({ x: 0.2, y: 1.1, z: 0 }),
+      teleportSequence: 1,
+    };
+    expect(shouldSnapRemoteFighter(previous, current, false)).toBe(true);
+  });
+
   it("snaps every remote fighter when the match changes", () => {
     const current = snapshot({ x: 0.2, y: 1.1, z: 0 });
     expect(shouldSnapRemoteFighter(previous, current, true)).toBe(true);

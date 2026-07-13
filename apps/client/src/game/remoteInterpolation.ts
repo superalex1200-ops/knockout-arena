@@ -7,7 +7,12 @@ export function shouldSnapRemoteFighter(
   current: PlayerSnapshot,
   matchChanged: boolean,
 ): boolean {
-  if (matchChanged || (!previous.protected && current.protected)) return true;
+  if (
+    matchChanged ||
+    (!previous.protected && current.protected) ||
+    previous.teleportSequence !== current.teleportSequence
+  )
+    return true;
 
   const dx = current.position.x - previous.position.x;
   const dy = current.position.y - previous.position.y;

@@ -219,6 +219,9 @@ describe("authoritative combat simulation", () => {
     expect(hit?.victim.id).toBe("b");
     expect(victim.knockback).toBe(10);
     expect(victim.velocity.z).toBeLessThan(0);
+    expect(hit?.force).toBeGreaterThan(0);
+    expect(hit?.launchSpeed).toBeGreaterThan(0);
+    expect(Number.isFinite(hit?.launchAngleDegrees)).toBe(true);
   });
 
   it("keeps sparring-bot punches useful but clearly weaker than player hits", () => {
@@ -309,10 +312,31 @@ describe("authoritative combat simulation", () => {
     const damageRatio = guarded.victim.knockback / open.victim.knockback;
     const launchRatio =
       Math.abs(guarded.victim.velocity.z) / Math.abs(open.victim.velocity.z);
+    expect(guarded.hit!.force).toBeLessThan(open.hit!.force);
     expect(damageRatio).toBeGreaterThanOrEqual(0.45);
     expect(damageRatio).toBeLessThanOrEqual(0.55);
     expect(launchRatio).toBeGreaterThanOrEqual(0.45);
     expect(launchRatio).toBeLessThanOrEqual(0.55);
+  });
+
+  it("reports stronger launch metrics for higher baseline knockback", () => {
+    const strike = (knockback: number, suffix: string) => {
+      const attacker = createPlayer(`metrics-a-${suffix}`, "Alpha", 0);
+      const victim = createPlayer(`metrics-b-${suffix}`, "Bravo", 0);
+      attacker.position = { x: 0, y: 1.1, z: 0 };
+      victim.position = { x: 0, y: 1.1, z: -2 };
+      attacker.protectionUntil = 0;
+      victim.protectionUntil = 0;
+      victim.knockback = knockback;
+      return performAttack(attacker, [attacker, victim], "heavy", 1, 0, 1_000)!;
+    };
+
+    const low = strike(0, "low");
+    const high = strike(80, "high");
+    expect(high.force).toBeGreaterThan(low.force);
+    expect(high.launchSpeed).toBeGreaterThan(low.launchSpeed);
+    expect(low.launchAngleDegrees).toBeGreaterThan(0);
+    expect(high.launchAngleDegrees).toBeGreaterThan(0);
   });
 
   it("detects a fall below the knockout zone", () => {

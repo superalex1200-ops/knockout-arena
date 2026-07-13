@@ -19,6 +19,7 @@ import {
   type MatchRules,
   type ServerMessage,
   type TrainingBotMode,
+  type Vec3,
 } from "@knockout/shared";
 import {
   botNavigationTarget,
@@ -42,6 +43,16 @@ import {
   decideBackpressure,
   isWebSocketOriginAllowed,
 } from "./security.js";
+import {
+  createTrainingLabState,
+  recordTrainingHit,
+  resetTrainingDummy,
+  restoreTrainingBaselineAfterRespawn,
+  setTrainingBaseline,
+  toTrainingLabSnapshot,
+  updateTrainingFlightDistance,
+  type TrainingLabState,
+} from "./training.js";
 
 type Client = {
   socket: WebSocket;
@@ -62,6 +73,8 @@ type Room = {
   matchStartedAt: number;
   mode: MatchMode;
   trainingBotMode: TrainingBotMode;
+  training?: TrainingLabState;
+  trainingDummySpawn?: Vec3;
   rules: MatchRules;
   rematchVotes: Set<string>;
   hostId?: string;
@@ -159,6 +172,7 @@ function createRoom(mode: MatchMode): Room {
     matchStartedAt: 0,
     mode,
     trainingBotMode: "aggressive",
+    training: mode === "training" ? createTrainingLabState() : undefined,
     rules: { ...DEFAULT_MATCH_RULES },
     rematchVotes: new Set(),
   };
@@ -230,6 +244,8 @@ function beginMatch(room: Room, now: number): void {
     player.stocksRemaining = room.rules.stocks;
     player.eliminated = false;
     respawn(player, spawnIndex++, now);
+    if (room.training && player.bot)
+      restoreTrainingBaselineAfterRespawn(room.training, player);
   }
   broadcast(room, { type: "notice", text: "FIGHT!" });
   console.log(
@@ -748,11 +764,11 @@ wss.on("connection", (socket, request) => {
       client.room = room;
       client.reconnectToken = reconnectToken;
       clearJoinTimer();
-      if (room.mode === "training" && !room.players.has("coach-bot"))
-        room.players.set(
-          "coach-bot",
-          createPlayer("coach-bot", "SPARR-BOT", 1, true),
-        );
+      if (room.mode === "training" && !room.players.has("coach-bot")) {
+        const bot = createPlayer("coach-bot", "SPARR-BOT", 1, true);
+        room.trainingDummySpawn = { ...bot.position };
+        room.players.set("coach-bot", bot);
+      }
       if (room.mode === "training" && room.phase !== "playing")
         beginMatch(room, Date.now());
       if (
@@ -875,6 +891,18 @@ wss.on("connection", (socket, request) => {
         type: "notice",
         text: `Sparr-Bot: ${msg.mode.toUpperCase()}`,
       });
+    } else if (msg.type === "setTrainingKnockback") {
+      if (room.mode !== "training" || !player.host || !room.training) return;
+      const value = setTrainingBaseline(room.training, msg.value);
+      const dummy = room.players.get("coach-bot");
+      if (dummy) dummy.knockback = value;
+    } else if (msg.type === "resetTraining") {
+      if (room.mode !== "training" || !player.host || !room.training) return;
+      const dummy = room.players.get("coach-bot");
+      const spawn = room.trainingDummySpawn;
+      if (!dummy || !spawn) return;
+      resetTrainingDummy(room.training, dummy, spawn, Date.now());
+      broadcast(room, { type: "notice", text: "DUMMY ZURÜCKGESETZT" });
     } else if (msg.type === "ping") {
       if (Number.isFinite(msg.clientTime))
         send(socket, {
@@ -982,6 +1010,21 @@ wss.on("connection", (socket, request) => {
           charge: verifiedCharge ?? 0,
           pitch: attackPitch,
         });
+      if (
+        result &&
+        room.training &&
+        !player.bot &&
+        result.victim.id === "coach-bot"
+      )
+        recordTrainingHit(
+          room.training,
+          {
+            force: result.force,
+            launchAngleDegrees: result.launchAngleDegrees,
+            launchSpeed: result.launchSpeed,
+          },
+          result.victim.position,
+        );
       if (result)
         broadcast(room, {
           type: "hit",
@@ -1100,71 +1143,79 @@ const simulationTimer = setInterval(() => {
           player.input.blocking = false;
           player.input.moveX = 0;
           player.input.moveZ = 0;
-          if (room.trainingBotMode === "strafe")
-            player.input.moveX = Math.sin(now / 900) * 0.45;
-          if (room.trainingBotMode === "aggressive") {
-            const canEngage = trainingBotCanEngage(
-              human,
-              room.matchStartedAt,
-              now,
-            );
-            if (canEngage) {
-              player.input.moveZ =
-                navigatingAroundWall || distance > GAME.punchRange - 0.35
-                  ? -0.48
-                  : 0;
-              const attackYaw = Math.atan2(-dx, -dz);
-              const previousAttackAt = player.lastAttack;
-              const attack =
-                distance < GAME.punchRange - 0.05 &&
-                now - player.lastAttack >= TRAINING_BOT_ATTACK_INTERVAL_MS
-                  ? performAttack(
-                      player,
-                      room.players.values(),
-                      "light",
-                      0,
-                      attackYaw,
-                      now,
-                      0,
-                      room.rules.knockbackMultiplier,
-                    )
-                  : undefined;
-              if (player.lastAttack !== previousAttackAt)
-                broadcast(room, {
-                  type: "attack",
-                  attackerId: player.id,
-                  kind: "light",
-                  charge: 0,
-                  pitch: 0,
-                });
-              if (attack)
-                broadcast(room, {
-                  type: "hit",
-                  attackerId: player.id,
-                  victimId: attack.victim.id,
-                  kind: "light",
-                  parried: attack.parried,
-                  blocked: attack.blocked,
-                  finisher: attack.finisher,
-                  knockback: attack.victim.knockback,
-                  combo: player.combo,
-                  position: attack.position,
-                  finisherDurationMs: attack.finisher
-                    ? GAME.finisherDurationMs
-                    : undefined,
-                });
+          if (!room.training?.activeFlightStart) {
+            if (room.trainingBotMode === "strafe")
+              player.input.moveX = Math.sin(now / 900) * 0.45;
+            if (room.trainingBotMode === "aggressive") {
+              const canEngage = trainingBotCanEngage(
+                human,
+                room.matchStartedAt,
+                now,
+              );
+              if (canEngage) {
+                player.input.moveZ =
+                  navigatingAroundWall || distance > GAME.punchRange - 0.35
+                    ? -0.48
+                    : 0;
+                const attackYaw = Math.atan2(-dx, -dz);
+                const previousAttackAt = player.lastAttack;
+                const attack =
+                  distance < GAME.punchRange - 0.05 &&
+                  now - player.lastAttack >= TRAINING_BOT_ATTACK_INTERVAL_MS
+                    ? performAttack(
+                        player,
+                        room.players.values(),
+                        "light",
+                        0,
+                        attackYaw,
+                        now,
+                        0,
+                        room.rules.knockbackMultiplier,
+                      )
+                    : undefined;
+                if (player.lastAttack !== previousAttackAt)
+                  broadcast(room, {
+                    type: "attack",
+                    attackerId: player.id,
+                    kind: "light",
+                    charge: 0,
+                    pitch: 0,
+                  });
+                if (attack)
+                  broadcast(room, {
+                    type: "hit",
+                    attackerId: player.id,
+                    victimId: attack.victim.id,
+                    kind: "light",
+                    parried: attack.parried,
+                    blocked: attack.blocked,
+                    finisher: attack.finisher,
+                    knockback: attack.victim.knockback,
+                    combo: player.combo,
+                    position: attack.position,
+                    finisherDurationMs: attack.finisher
+                      ? GAME.finisherDurationMs
+                      : undefined,
+                  });
+              }
             }
-          }
-          if (room.trainingBotMode === "blocking") {
-            player.input.moveX = Math.sin(now / 1_100) * 0.18;
-            player.input.blocking = Math.floor(now / 1_200) % 3 !== 2;
+            if (room.trainingBotMode === "blocking") {
+              player.input.moveX = Math.sin(now / 1_100) * 0.18;
+              player.input.blocking = Math.floor(now / 1_200) % 3 !== 2;
+            }
           }
         }
       }
-      if (player.respawnAt && !player.eliminated && now >= player.respawnAt)
+      if (player.respawnAt && !player.eliminated && now >= player.respawnAt) {
         respawn(player, index, now);
-      else if (room.phase === "playing" && !player.eliminated) {
+        if (room.training && player.bot)
+          restoreTrainingBaselineAfterRespawn(room.training, player);
+      } else if (room.phase === "playing" && !player.eliminated) {
         const step = stepPlayer(player, dt, now);
+        if (room.training && player.bot && room.training.activeFlightStart) {
+          updateTrainingFlightDistance(room.training, player.position);
+          if (player.grounded) room.training.activeFlightStart = null;
+        }
         if (step.wallHit)
           broadcast(room, {
             type: "wallHit",
@@ -1223,6 +1274,9 @@ const snapshotTimer = setInterval(() => {
       roomMode: room.mode,
       rematchVotes: [...room.rematchVotes],
       trainingBotMode: room.trainingBotMode,
+      training: room.training
+        ? toTrainingLabSnapshot(room.training)
+        : undefined,
       rules: room.rules,
       players: [...room.players.values()].map(
         ({

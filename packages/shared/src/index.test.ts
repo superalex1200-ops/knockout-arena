@@ -12,7 +12,33 @@ import {
   segmentCrossesArenaFloor,
   segmentCrossesArenaWall,
   sweepArenaWalls,
+  TRAINING_MAX_KNOCKBACK,
+  type TrainingHitMetrics,
+  type TrainingLabSnapshot,
 } from "./index";
+
+describe("training lab contract", () => {
+  it("exposes a bounded baseline and nullable last-hit metrics", () => {
+    const metrics = {
+      force: 24,
+      launchAngleDegrees: 18,
+      launchSpeed: 12,
+      flightDistance: 8,
+    } satisfies TrainingHitMetrics;
+    const populated = {
+      baselineKnockback: 100,
+      lastHit: metrics,
+    } satisfies TrainingLabSnapshot;
+    const empty = {
+      baselineKnockback: 0,
+      lastHit: null,
+    } satisfies TrainingLabSnapshot;
+
+    expect(TRAINING_MAX_KNOCKBACK).toBe(200);
+    expect(populated.lastHit).toEqual(metrics);
+    expect(empty.lastHit).toBeNull();
+  });
+});
 
 describe("knockbackForce", () => {
   it("grows smoothly and stays controlled", () => {

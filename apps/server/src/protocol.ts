@@ -64,6 +64,7 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
     case "leave":
     case "startMatch":
     case "returnToLobby":
+    case "resetTraining":
       return Object.keys(value).length === 1
         ? (value as ClientMessage)
         : undefined;
@@ -85,6 +86,8 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
       )
         ? (value as ClientMessage)
         : undefined;
+    case "setTrainingKnockback":
+      return isFiniteNumber(value.value) ? (value as ClientMessage) : undefined;
     case "updateRules":
       return isRulesPatch(value.patch) ? (value as ClientMessage) : undefined;
     case "input":

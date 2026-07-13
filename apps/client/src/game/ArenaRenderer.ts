@@ -6,6 +6,7 @@ import {
   type ServerMessage,
 } from "@knockout/shared";
 import type { GameSocket } from "../network";
+import type { TutorialAction } from "../training";
 import { AudioSystem } from "./AudioSystem";
 import type { GameSettings } from "../settings";
 import { MovementPredictor } from "./MovementPredictor";
@@ -38,17 +39,6 @@ type Input = {
   block: boolean;
   charging: boolean;
 };
-export type TutorialAction =
-  | "move"
-  | "look"
-  | "jump"
-  | "punch"
-  | "hit"
-  | "heavy"
-  | "dash"
-  | "block"
-  | "knockback"
-  | "knockout";
 export type GameUiAction = "scoreboard" | "chat";
 
 export class ArenaRenderer {

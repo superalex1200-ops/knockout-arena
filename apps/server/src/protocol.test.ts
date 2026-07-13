@@ -110,4 +110,34 @@ describe("client protocol validation", () => {
       parseClientMessage(JSON.stringify({ type: "leave", playerId: "other" })),
     ).toBeUndefined();
   });
+
+  it("accepts valid training-lab controls", () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({ type: "setTrainingKnockback", value: 125.5 }),
+      ),
+    ).toEqual({ type: "setTrainingKnockback", value: 125.5 });
+    expect(
+      parseClientMessage(JSON.stringify({ type: "resetTraining" })),
+    ).toEqual({ type: "resetTraining" });
+  });
+
+  it("rejects malformed training knockback values", () => {
+    for (const payload of [
+      { type: "setTrainingKnockback", value: "125" },
+      { type: "setTrainingKnockback", value: null },
+      { type: "setTrainingKnockback" },
+    ])
+      expect(parseClientMessage(JSON.stringify(payload))).toBeUndefined();
+
+    expect(
+      parseClientMessage('{"type":"setTrainingKnockback","value":1e400}'),
+    ).toBeUndefined();
+  });
+
+  it("rejects foreign fields on a training reset", () => {
+    expect(
+      parseClientMessage(JSON.stringify({ type: "resetTraining", value: 0 })),
+    ).toBeUndefined();
+  });
 });

@@ -86,6 +86,17 @@ export type AttackKind = "light" | "heavy";
 export type MatchMode = "quick" | "private" | "training";
 export type MatchPhase = "lobby" | "countdown" | "playing" | "results";
 export type TrainingBotMode = "static" | "strafe" | "aggressive" | "blocking";
+export const TRAINING_MAX_KNOCKBACK = 200;
+export type TrainingHitMetrics = {
+  force: number;
+  launchAngleDegrees: number;
+  launchSpeed: number;
+  flightDistance: number;
+};
+export type TrainingLabSnapshot = {
+  baselineKnockback: number;
+  lastHit: TrainingHitMetrics | null;
+};
 export type Team = "red" | "blue";
 export type MatchRules = {
   gameMode: "stock" | "team";
@@ -134,6 +145,7 @@ export type PlayerSnapshot = {
   connected?: boolean;
   team?: Team;
   bot?: boolean;
+  teleportSequence?: number;
 };
 
 export type ServerMessage =
@@ -167,6 +179,7 @@ export type ServerMessage =
       roomMode: MatchMode;
       rematchVotes: string[];
       trainingBotMode: TrainingBotMode;
+      training?: TrainingLabSnapshot;
       rules: MatchRules;
       players: PlayerSnapshot[];
     }
@@ -225,6 +238,8 @@ export type ClientMessage =
   | { type: "chat"; text: string }
   | { type: "ping"; clientTime: number }
   | { type: "setTrainingBotMode"; mode: TrainingBotMode }
+  | { type: "setTrainingKnockback"; value: number }
+  | { type: "resetTraining" }
   | { type: "updateRules"; patch: Partial<MatchRules> }
   | {
       type: "input";

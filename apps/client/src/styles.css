@@ -439,10 +439,13 @@
 }
 .tutorial-panel {
   position: fixed;
+  z-index: 9;
   top: 76px;
   right: 22px;
-  width: 245px;
-  padding: 16px;
+  width: 280px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  padding: 14px;
   background: #090d1ee8;
   border: 1px solid #3c4665;
   backdrop-filter: blur(8px);
@@ -462,20 +465,20 @@
   display: grid;
   gap: 4px;
 }
-.tutorial-panel span {
+.tutorial-steps span {
   display: flex;
   gap: 8px;
   color: #7f89a5;
   font-size: 0.66rem;
   padding: 3px;
 }
-.tutorial-panel span b {
+.tutorial-steps span b {
   color: #4d5876;
 }
-.tutorial-panel span.done {
+.tutorial-steps span.done {
   color: #e8ecf8;
 }
-.tutorial-panel span.done b {
+.tutorial-steps span.done b {
   color: #55edaf;
 }
 .tutorial-panel > strong {
@@ -512,6 +515,101 @@
   border-color: #55dff5;
   background: #143243;
   color: #66eaff;
+}
+.training-lab-controls {
+  margin-bottom: 11px;
+  padding: 9px;
+  border: 1px solid #283450;
+  background: #0d1327;
+}
+.training-readout,
+.training-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.training-readout span,
+.training-metrics span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid #252f49;
+  background: #11182e;
+}
+.training-readout small,
+.training-metrics small,
+.training-slider > span {
+  color: #71809f;
+  font-size: 0.47rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+.training-readout b,
+.training-metrics b {
+  overflow: hidden;
+  color: #f4f7ff;
+  font: 800 0.72rem var(--font-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.training-readout span:first-child b {
+  color: #64eaff;
+}
+.training-slider {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+}
+.training-slider input {
+  width: 100%;
+  margin: 0;
+  accent-color: #55dff5;
+  cursor: pointer;
+}
+.training-presets {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  margin: -2px 0 8px;
+}
+.training-presets button {
+  border: 1px solid #293752;
+  background: #10172b;
+  color: #7785a5;
+  padding: 4px 1px;
+  font-size: 0.44rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+.training-presets button.active {
+  border-color: #55dff5;
+  color: #68ebff;
+}
+.training-metrics {
+  margin-bottom: 7px;
+}
+.training-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.training-actions button {
+  border: 1px solid #405273;
+  background: #151d34;
+  color: #b9c5df;
+  padding: 6px 3px;
+  font-size: 0.49rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+.training-actions button:first-child {
+  border-color: #d04a77;
+  color: #ff8bae;
+}
+.training-actions button:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 .settings-overlay h3 {
   margin: 22px 0 8px;

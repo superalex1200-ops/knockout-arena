@@ -113,6 +113,7 @@ export function createPlayer(
     ready: bot,
     host: false,
     bot,
+    teleportSequence: 0,
     input: {
       moveX: 0,
       moveZ: 0,
@@ -149,6 +150,7 @@ export function createPlayer(
 
 export function respawn(player: SimPlayer, index: number, now: number): void {
   const spawn = spawnPoints[index % spawnPoints.length] ?? spawnPoints[0]!;
+  player.teleportSequence = (player.teleportSequence ?? 0) + 1;
   player.position = { ...spawn };
   player.velocity = { x: 0, y: 0, z: 0 };
   player.knockback = 0;
@@ -748,12 +750,26 @@ export function performAttack(
     attacker.velocity.z -= fz * 3.5;
     endBlock(target, now, true);
   }
+  const launchSpeed = Math.hypot(
+    target.velocity.x,
+    target.velocity.y,
+    target.velocity.z,
+  );
+  const launchAngleDegrees =
+    Math.atan2(
+      target.velocity.y,
+      Math.hypot(target.velocity.x, target.velocity.z),
+    ) *
+    (180 / Math.PI);
   return {
     victim: target,
     parried,
     blocked,
     finisher,
     position: targetHit.point,
+    force,
+    launchSpeed,
+    launchAngleDegrees,
   };
 }
 
