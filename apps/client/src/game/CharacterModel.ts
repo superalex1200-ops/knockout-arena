@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { PlayerSnapshot } from "@knockout/shared";
 
@@ -179,62 +178,59 @@ const smoothGloveShell = (
   firstPerson: boolean,
 ): THREE.BufferGeometry => {
   const scale = firstPerson ? 0.95 : 1;
-  const thumbRadius = 0.043 * scale;
   return merged(
     transformed(
-      new RoundedBoxGeometry(
-        0.35 * scale,
-        0.25 * scale,
-        0.37 * scale,
-        firstPerson ? 8 : 6,
-        0.086 * scale,
-      ),
-      [0, 0.012, -0.012],
+      new THREE.SphereGeometry(0.16 * scale, 32, 20),
+      [0, 0.012, 0.006],
       [0, 0, 0],
-      [1, 1, 1],
+      [1, 0.76, 1.06],
     ),
     transformed(
-      new THREE.CapsuleGeometry(thumbRadius, 0.05 * scale, 8, 18),
-      [-side * 0.12 * scale, -0.052, 0.018],
-      [0.72, 0, side * 0.42],
-      [0.9, 1, 0.84],
+      new THREE.SphereGeometry(0.045 * scale, 24, 16),
+      [-side * 0.12 * scale, -0.085 * scale, 0.012],
+      [0, 0, 0],
+      [1, 0.86, 0.9],
     ),
   );
 };
 
 const smoothGloveCuff = (firstPerson: boolean): THREE.BufferGeometry => {
-  const gloveRadius = firstPerson ? 0.105 : 0.115;
-  const wristRadius = firstPerson ? 0.085 : 0.092;
-  const center = firstPerson ? 0.205 : 0.22;
-  const length = firstPerson ? 0.105 : 0.12;
+  if (firstPerson)
+    return transformed(
+      new THREE.CylinderGeometry(0.072, 0.085, 0.1, 32, 1, true),
+      [0, -0.006, 0.205],
+      [Math.PI / 2, 0, 0],
+      [1.05, 0.86, 0.82],
+    );
   return transformed(
-    new THREE.CylinderGeometry(wristRadius, gloveRadius, length, 32),
-    [0, 0, center],
+    new THREE.CylinderGeometry(0.092, 0.115, 0.12, 32),
+    [0, 0, 0.22],
     [Math.PI / 2, 0, 0],
     [1.08, 0.82, 0.9],
   );
 };
 
 const smoothForearmSleeve = (side: -1 | 1): THREE.BufferGeometry => {
-  const height = 0.66;
-  const geometry = new RoundedBoxGeometry(0.19, height, 0.15, 6, 0.05);
+  const geometry = new THREE.CylinderGeometry(0.095, 0.068, 0.42, 24, 6);
   const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
   for (let index = 0; index < positions.count; index++) {
     const alongArm = THREE.MathUtils.clamp(
-      (positions.getY(index) + height / 2) / height,
+      (positions.getY(index) + 0.21) / 0.42,
       0,
       1,
     );
-    const taper = THREE.MathUtils.lerp(0.82, 1.12, alongArm);
-    positions.setX(index, positions.getX(index) * taper);
-    positions.setZ(index, positions.getZ(index) * taper);
+    positions.setX(
+      index,
+      positions.getX(index) + side * 0.025 * Math.sin(Math.PI * alongArm),
+    );
   }
   positions.needsUpdate = true;
+  geometry.computeVertexNormals();
   return transformed(
     geometry,
-    [side * 0.02, -0.27, 0.34],
-    [2.55, 0, side * 0.025],
-    [1, 1, 0.94],
+    [side * 0.02, -0.17, 0.273],
+    [2.55, 0, side * 0.1],
+    [1, 1, 0.78],
   );
 };
 
@@ -251,16 +247,16 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
     emissive: 0x3d0712,
     emissiveIntensity: 0.16,
   });
-  const sleeveMaterial = standardMaterial(0x202a42, {
-    roughness: 0.6,
-    metalness: 0.06,
+  const sleeveMaterial = standardMaterial(0x11182a, {
+    roughness: 0.72,
+    metalness: 0.02,
   });
 
   const shell = new THREE.Mesh(smoothGloveShell(side, true), primary);
   shell.name = "fp-glove-shell";
   group.add(shell);
 
-  const cuff = new THREE.Mesh(smoothGloveCuff(true), sleeveMaterial);
+  const cuff = new THREE.Mesh(smoothGloveCuff(true), primary);
   cuff.name = "fp-cuff";
   group.add(cuff);
 

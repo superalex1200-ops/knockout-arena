@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { PlayerSnapshot } from "@knockout/shared";
 import {
   createFirstPersonGlove,
@@ -263,12 +262,15 @@ describe("CharacterModel", () => {
         ).toBe(false);
         expect(fist.getObjectByName("fp-forearm-armor")).toBeUndefined();
         expect(overlapVolume(shell, cuff)).toBeGreaterThan(0.00005);
-        expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.00005);
+        expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.001);
+        expect(cuff.material).toBe(shell.material);
+        expect(sleeve.material).not.toBe(shell.material);
         expect(bounds.max.z, `${state}:${side} camera clearance`).toBeLessThan(
-          -0.72,
+          -0.9,
         );
         expect(size.x).toBeLessThan(0.44);
-        expect(size.y).toBeLessThan(0.82);
+        expect(size.y).toBeLessThan(0.56);
+        expect(size.z).toBeLessThan(0.82);
         shell.geometry.computeBoundingBox();
         const localShellSize = shell.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
@@ -287,14 +289,16 @@ describe("CharacterModel", () => {
         expect(localShellSize.x / localSleeveSize.x).toBeGreaterThan(1.3);
         expect(localSleeveSize.z / localSleeveSize.x).toBeLessThan(3.5);
         expect(localSleeveSize.y / localSleeveSize.x).toBeGreaterThan(1.5);
-        expect(sleeve.geometry).toBeInstanceOf(RoundedBoxGeometry);
-        const sleeveShape = sleeve.geometry as RoundedBoxGeometry;
-        expect(sleeveShape.parameters.width).toBeCloseTo(0.19);
-        expect(sleeveShape.parameters.height).toBeCloseTo(0.66);
-        expect(sleeveShape.parameters.depth).toBeCloseTo(0.15);
+        expect(sleeve.geometry).toBeInstanceOf(THREE.CylinderGeometry);
+        const sleeveShape = sleeve.geometry as THREE.CylinderGeometry;
+        expect(sleeveShape.parameters.height).toBeCloseTo(0.42);
+        expect(sleeveShape.parameters.radiusTop).toBeCloseTo(0.095);
+        expect(sleeveShape.parameters.radiusBottom).toBeCloseTo(0.068);
+        expect(sleeveShape.parameters.radialSegments).toBe(24);
+        expect(sleeveShape.parameters.heightSegments).toBeGreaterThanOrEqual(5);
       }
-      expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.015);
-      expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.015);
+      expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.035);
+      expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.035);
     }
 
     for (const side of [-1, 1] as const) {
