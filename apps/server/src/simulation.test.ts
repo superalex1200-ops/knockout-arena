@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { GAME } from "@knockout/shared";
+import {
+  ARENA_FLOOR_BOTTOM,
+  ARENA_FLOOR_TOP,
+  GAME,
+  PLAYER_HALF_HEIGHT,
+  PLAYER_RADIUS,
+} from "@knockout/shared";
 import {
   botNavigationTarget,
   consumeHeavyCharge,
@@ -10,6 +16,24 @@ import {
   resolvePlayerCollisions,
   stepPlayer,
 } from "./simulation.js";
+
+const penetratesFloorSlab = (player: ReturnType<typeof createPlayer>) => {
+  const outsideX = Math.max(
+    0,
+    Math.abs(player.position.x) - GAME.arenaHalfSize,
+  );
+  const outsideZ = Math.max(
+    0,
+    Math.abs(player.position.z) - GAME.arenaHalfSize,
+  );
+  const horizontalOverlap =
+    outsideX * outsideX + outsideZ * outsideZ <
+    PLAYER_RADIUS * PLAYER_RADIUS - 1e-6;
+  const verticalOverlap =
+    player.position.y + PLAYER_HALF_HEIGHT > ARENA_FLOOR_BOTTOM + 1e-6 &&
+    player.position.y - PLAYER_HALF_HEIGHT < ARENA_FLOOR_TOP - 1e-6;
+  return horizontalOverlap && verticalOverlap;
+};
 
 describe("authoritative combat simulation", () => {
   it("fully clears knockback on every respawn", () => {
@@ -115,7 +139,7 @@ describe("authoritative combat simulation", () => {
     expect(stepPlayer(player, 0.1, 2_000).knockedOut).toBe(true);
   });
 
-  it("does not let an air dash recover through the underside of the arena", () => {
+  it("does not let an air dash enter through the underside edge", () => {
     const player = createPlayer("a", "Alpha", 0);
     player.position = { x: 15.2, y: 0.9, z: 0 };
     player.velocity = { x: 0, y: 0.8, z: 0 };
@@ -123,20 +147,77 @@ describe("authoritative combat simulation", () => {
     player.airRecoveryAvailable = true;
     player.input = { ...player.input, moveX: -1, dash: true };
     stepPlayer(player, 0.1, 2_000);
-    expect(player.position.x).toBeLessThan(GAME.arenaHalfSize);
+    expect(player.position.x).toBeGreaterThanOrEqual(
+      GAME.arenaHalfSize + 0.55 - 0.001,
+    );
     expect(player.position.y).toBeLessThan(1.1);
-    expect(player.velocity.y).toBeLessThanOrEqual(0);
+    expect(player.velocity.x).toBeGreaterThanOrEqual(-0.001);
     expect(player.grounded).toBe(false);
   });
 
-  it("removes grounded state immediately after leaving the platform", () => {
+  it("keeps edge support until the circular fighter footprint clears the floor", () => {
     const player = createPlayer("a", "Alpha", 0);
-    player.position = { x: GAME.arenaHalfSize - 0.05, y: 1.1, z: 0 };
-    player.velocity = { x: 8, y: 0, z: 0 };
-    player.input = { ...player.input, moveX: 1 };
-    stepPlayer(player, 0.1, 2_000);
+    player.position = { x: GAME.arenaHalfSize + 0.35, y: 1.1, z: 0 };
+    player.velocity = { x: 0, y: 0, z: 0 };
+    stepPlayer(player, 1 / 30, 2_000);
+    expect(player.position.y).toBe(1.1);
+    expect(player.grounded).toBe(true);
+
+    player.position = { x: GAME.arenaHalfSize + 0.56, y: 1.1, z: 0 };
+    stepPlayer(player, 1 / 30, 2_100);
     expect(player.position.x).toBeGreaterThan(GAME.arenaHalfSize);
     expect(player.grounded).toBe(false);
+    expect(player.position.y).toBeLessThan(1.1);
+  });
+
+  it("blocks an under-edge air dash from entering the solid floor slab", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.position = { x: 15.7, y: 0.9, z: 0 };
+    player.velocity = { x: -18, y: 0.8, z: 0 };
+    player.grounded = false;
+    player.input = { ...player.input, moveX: -1 };
+    stepPlayer(player, 0.1, 2_000);
+    expect(player.position.x).toBeGreaterThanOrEqual(
+      GAME.arenaHalfSize + 0.55 - 0.001,
+    );
+    expect(player.position.y - PLAYER_HALF_HEIGHT).toBeLessThan(0);
+    expect(player.grounded).toBe(false);
+  });
+
+  it("never penetrates the floor slab across high-speed edge and corner cases", () => {
+    const cases = [
+      {
+        position: { x: 14.95, y: 1.1, z: 0 },
+        velocity: { x: 120, y: 0, z: 0 },
+      },
+      {
+        position: { x: 0, y: 1.1, z: -14.95 },
+        velocity: { x: 0, y: 0, z: -120 },
+      },
+      {
+        position: { x: 14.8, y: 1.1, z: 14.8 },
+        velocity: { x: 90, y: 0, z: 90 },
+      },
+      {
+        position: { x: 15.7, y: 0.9, z: 0 },
+        velocity: { x: -120, y: 1, z: 0 },
+      },
+      {
+        position: { x: -15.7, y: -2.6, z: 0 },
+        velocity: { x: 120, y: 8, z: 0 },
+      },
+    ];
+    for (const [index, scenario] of cases.entries()) {
+      const player = createPlayer(`edge-${index}`, "Edge", 0);
+      player.position = { ...scenario.position };
+      player.velocity = { ...scenario.velocity };
+      player.grounded = scenario.position.y === PLAYER_HALF_HEIGHT;
+      player.input = { ...player.input, moveX: 0, moveZ: 0 };
+      for (let tick = 0; tick < 8; tick++) {
+        stepPlayer(player, 1 / 30, 2_000 + tick * (1_000 / 30));
+        expect(penetratesFloorSlab(player)).toBe(false);
+      }
+    }
   });
 
   it("resolves a high-speed wall impact and emits wall-hit data", () => {
@@ -397,6 +478,25 @@ describe("authoritative combat simulation", () => {
     expect(movable.position.x - pinned.position.x).toBeCloseTo(1.1);
   });
 
+  it("does not let body separation push a falling fighter into the floor edge", () => {
+    const edge = createPlayer("a", "Edge", 0);
+    const outside = createPlayer("b", "Outside", 0);
+    edge.protected = outside.protected = false;
+    edge.protectionUntil = outside.protectionUntil = 0;
+    edge.position = { x: 15.6, y: 0.5, z: 0 };
+    outside.position = { x: 16, y: 0.5, z: 0 };
+    edge.positionHistory = [{ time: 1_000, position: { ...edge.position } }];
+    outside.positionHistory = [
+      { time: 1_000, position: { ...outside.position } },
+    ];
+
+    resolvePlayerCollisions([edge, outside], 1_000);
+
+    expect(penetratesFloorSlab(edge)).toBe(false);
+    expect(edge.position.x).toBeGreaterThanOrEqual(15.55 - 1e-6);
+    expect(outside.position.x - edge.position.x).toBeCloseTo(PLAYER_RADIUS * 2);
+  });
+
   it("does not body-block a synchronized finisher launch", () => {
     const launched = createPlayer("a", "Launched", 0);
     const other = createPlayer("b", "Other", 0);
@@ -408,11 +508,33 @@ describe("authoritative combat simulation", () => {
     expect(launched.position).toEqual(other.position);
   });
 
-  it("launches a 100-percent heavy finisher beyond the arena", () => {
+  it("never lets a 100-percent heavy finisher ghost through a solid wall", () => {
     const attacker = createPlayer("a", "Alpha", 0),
       victim = createPlayer("b", "Bravo", 0);
     attacker.position = { x: 0, y: 1.1, z: 1 };
     victim.position = { x: 0, y: 1.1, z: -1 };
+    victim.knockback = 100;
+    attacker.protectionUntil = 0;
+    victim.protectionUntil = 0;
+    const hit = performAttack(
+      attacker,
+      [attacker, victim],
+      "heavy",
+      1,
+      0,
+      1_000,
+    );
+    expect(hit?.finisher).toBe(true);
+    for (let tick = 1; tick <= 30; tick++)
+      stepPlayer(victim, 1 / 30, 1_000 + (tick * 1000) / 30);
+    expect(victim.position.z).toBeGreaterThanOrEqual(-7.851);
+  });
+
+  it("still launches a 100-percent heavy finisher out through an open lane", () => {
+    const attacker = createPlayer("a", "Alpha", 0),
+      victim = createPlayer("b", "Bravo", 0);
+    attacker.position = { x: 5, y: 1.1, z: 1 };
+    victim.position = { x: 5, y: 1.1, z: -1 };
     victim.knockback = 100;
     attacker.protectionUntil = 0;
     victim.protectionUntil = 0;

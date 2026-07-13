@@ -6,6 +6,7 @@ import {
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
   knockbackForce,
+  resolveArenaFloorMovement,
   resolveArenaWallOverlaps,
   sweepArenaWalls,
   type AttackKind,
@@ -268,32 +269,26 @@ export function stepPlayer(
       y: previous.y + (player.velocity.y * dt) / substeps,
       z: previous.z + (player.velocity.z * dt) / substeps,
     };
-    const overPlatform =
-      Math.abs(intended.x) < GAME.arenaHalfSize &&
-      Math.abs(intended.z) < GAME.arenaHalfSize;
-    if (
-      overPlatform &&
-      previous.y >= PLAYER_HALF_HEIGHT &&
-      intended.y <= PLAYER_HALF_HEIGHT
-    ) {
-      intended.y = PLAYER_HALF_HEIGHT;
-      player.velocity.y = 0;
-      floorContact = true;
-      player.airRecoveryAvailable = true;
-    } else if (
-      overPlatform &&
-      previous.y < PLAYER_HALF_HEIGHT &&
-      player.velocity.y > 0
-    ) {
-      // Prevent an air dash from phasing upward through the solid arena floor.
-      intended.y = Math.min(intended.y, PLAYER_HALF_HEIGHT - 0.001);
-      player.velocity.y = 0;
+    const floorResult = resolveArenaFloorMovement(previous, intended);
+    intended.x = floorResult.position.x;
+    intended.y = floorResult.position.y;
+    intended.z = floorResult.position.z;
+    floorContact = floorResult.contact?.grounded ?? false;
+    if (floorResult.contact) {
+      const { normal } = floorResult.contact;
+      const inward =
+        player.velocity.x * normal.x +
+        player.velocity.y * normal.y +
+        player.velocity.z * normal.z;
+      if (inward < 0) {
+        player.velocity.x -= normal.x * inward;
+        player.velocity.y -= normal.y * inward;
+        player.velocity.z -= normal.z * inward;
+      }
+      if (floorContact) player.airRecoveryAvailable = true;
     }
-    if (now < player.finisherUntil) player.position = intended;
-    else {
-      const impact = resolveWalls(player, previous, intended, now);
-      wallHit ??= impact;
-    }
+    const impact = resolveWalls(player, previous, intended, now);
+    wallHit ??= impact;
   }
   player.grounded = floorContact;
   player.positionHistory.push({ time: now, position: { ...player.position } });
@@ -407,6 +402,13 @@ export function resolvePlayerCollisions(
   players: Iterable<SimPlayer>,
   now = Date.now(),
 ): void {
+  const resolveStaticGeometry = (position: Vec3): Vec3 => {
+    const floorResolved = resolveArenaFloorMovement(
+      position,
+      position,
+    ).position;
+    return resolveArenaWallOverlaps(floorResolved).position;
+  };
   const active = [...players]
     .filter(
       (player) =>
@@ -432,8 +434,8 @@ export function resolvePlayerCollisions(
           pass === 0 &&
           resolveSweptPlayerContact(first, second, minimumDistance)
         ) {
-          first.position = resolveArenaWallOverlaps(first.position).position;
-          second.position = resolveArenaWallOverlaps(second.position).position;
+          first.position = resolveStaticGeometry(first.position);
+          second.position = resolveStaticGeometry(second.position);
           const firstHistory = first.positionHistory.at(-1);
           const secondHistory = second.positionHistory.at(-1);
           if (firstHistory) firstHistory.position = { ...first.position };
@@ -458,8 +460,8 @@ export function resolvePlayerCollisions(
         first.position.z -= normal.z * correction;
         second.position.x += normal.x * correction;
         second.position.z += normal.z * correction;
-        first.position = resolveArenaWallOverlaps(first.position).position;
-        second.position = resolveArenaWallOverlaps(second.position).position;
+        first.position = resolveStaticGeometry(first.position);
+        second.position = resolveStaticGeometry(second.position);
         let remainingSeparation = Math.max(
           0,
           minimumDistance -
@@ -470,7 +472,7 @@ export function resolvePlayerCollisions(
           const before = { ...first.position };
           first.position.x -= normal.x * remainingSeparation;
           first.position.z -= normal.z * remainingSeparation;
-          first.position = resolveArenaWallOverlaps(first.position).position;
+          first.position = resolveStaticGeometry(first.position);
           const gained = Math.max(
             0,
             -(
@@ -483,7 +485,7 @@ export function resolvePlayerCollisions(
         if (remainingSeparation > 1e-6) {
           second.position.x += normal.x * remainingSeparation;
           second.position.z += normal.z * remainingSeparation;
-          second.position = resolveArenaWallOverlaps(second.position).position;
+          second.position = resolveStaticGeometry(second.position);
         }
         const firstHistory = first.positionHistory.at(-1);
         const secondHistory = second.positionHistory.at(-1);

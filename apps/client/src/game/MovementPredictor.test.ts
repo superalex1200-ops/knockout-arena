@@ -63,6 +63,18 @@ describe("MovementPredictor", () => {
     predictor.update(0.2, 0, -1, Math.PI / 2);
     expect(predictor.position.x).toBeGreaterThanOrEqual(-7.851);
   });
+  it("does not predict an under-edge dash through the solid floor side", () => {
+    const predictor = new MovementPredictor();
+    predictor.reconcile({
+      ...snapshot(15.7, 0),
+      position: { x: 15.7, y: 0.9, z: 0 },
+      grounded: false,
+    });
+    predictor.setEnabled(true);
+    predictor.triggerDash(-1, 0, 0);
+    predictor.update(0.1, -1, 0, 0);
+    expect(predictor.position.x).toBeGreaterThanOrEqual(15.549);
+  });
   it("preserves the short dash burst instead of braking it immediately", () => {
     const predictor = new MovementPredictor();
     predictor.reconcile(snapshot(0, 0));
@@ -71,13 +83,13 @@ describe("MovementPredictor", () => {
     predictor.update(1 / 30, 0, -1, 0);
     expect(predictor.position.z).toBeLessThan(-0.5);
   });
-  it("matches the authoritative wall bypass during a finisher launch", () => {
+  it("keeps solid wall collision active during a finisher launch", () => {
     const predictor = new MovementPredictor();
     predictor.reconcile({ ...snapshot(-7.7, 0), finisher: true });
     predictor.setEnabled(true);
     predictor.triggerDash(0, -1, Math.PI / 2);
     predictor.update(0.2, 0, -1, Math.PI / 2);
-    expect(predictor.position.x).toBeLessThan(-9.6);
+    expect(predictor.position.x).toBeGreaterThanOrEqual(-7.851);
   });
   it("predicts the same half-separation used for fighter body collision", () => {
     const predictor = new MovementPredictor();
@@ -89,6 +101,26 @@ describe("MovementPredictor", () => {
     expect(predictor.position.x).toBeCloseTo(-0.55);
     predictor.resolvePlayerCollisions(local, [local, target]);
     expect(predictor.position.x).toBeCloseTo(-0.55);
+  });
+  it("does not predict body separation into the solid floor edge", () => {
+    const predictor = new MovementPredictor();
+    const local = {
+      ...snapshot(15.6, 0),
+      position: { x: 15.6, y: 0.5, z: 0 },
+      grounded: false,
+    };
+    const target = {
+      ...snapshot(16, 0),
+      id: "z",
+      position: { x: 16, y: 0.5, z: 0 },
+      grounded: false,
+    };
+    predictor.reconcile(local);
+    predictor.setEnabled(true);
+
+    predictor.resolvePlayerCollisions(local, [local, target]);
+
+    expect(predictor.position.x).toBeGreaterThanOrEqual(15.55 - 1e-6);
   });
   it("adopts authoritative launch velocity without a lagging correction", () => {
     const predictor = new MovementPredictor();

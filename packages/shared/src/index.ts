@@ -288,6 +288,147 @@ const COLLISION_EPSILON = 1e-7;
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
+/**
+ * Treats the fighter footprint as a circle against the exact square floor.
+ * This keeps a capsule supported while any part of its base still rests on
+ * the platform, including at corners, instead of dropping its centre through
+ * a visibly remaining strip of floor.
+ */
+export function fighterHasArenaFloorSupport(
+  position: Pick<Vec3, "x" | "z">,
+  radius = PLAYER_RADIUS,
+): boolean {
+  const outsideX = Math.max(0, Math.abs(position.x) - GAME.arenaHalfSize);
+  const outsideZ = Math.max(0, Math.abs(position.z) - GAME.arenaHalfSize);
+  return (
+    outsideX * outsideX + outsideZ * outsideZ <=
+    radius * radius + COLLISION_EPSILON
+  );
+}
+
+export type ArenaFloorContact = {
+  normal: Vec3;
+  grounded: boolean;
+};
+
+export type ArenaFloorMovementResult = {
+  position: Vec3;
+  contact?: ArenaFloorContact;
+};
+
+function resolveFloorHorizontalOverlap(
+  position: Vec3,
+  radius: number,
+): { position: Vec3; normal: Vec3 } | undefined {
+  const closestX = clamp(position.x, -GAME.arenaHalfSize, GAME.arenaHalfSize);
+  const closestZ = clamp(position.z, -GAME.arenaHalfSize, GAME.arenaHalfSize);
+  const dx = position.x - closestX;
+  const dz = position.z - closestZ;
+  const distanceSquared = dx * dx + dz * dz;
+  if (distanceSquared >= radius * radius - COLLISION_EPSILON) return;
+
+  if (distanceSquared > COLLISION_EPSILON) {
+    const distance = Math.sqrt(distanceSquared);
+    const normal = { x: dx / distance, y: 0, z: dz / distance };
+    const push = radius - distance;
+    return {
+      position: {
+        ...position,
+        x: position.x + normal.x * push,
+        z: position.z + normal.z * push,
+      },
+      normal,
+    };
+  }
+
+  const nearest = [
+    {
+      distance: position.x + GAME.arenaHalfSize,
+      position: {
+        ...position,
+        x: -GAME.arenaHalfSize - radius,
+      },
+      normal: { x: -1, y: 0, z: 0 },
+    },
+    {
+      distance: GAME.arenaHalfSize - position.x,
+      position: {
+        ...position,
+        x: GAME.arenaHalfSize + radius,
+      },
+      normal: { x: 1, y: 0, z: 0 },
+    },
+    {
+      distance: position.z + GAME.arenaHalfSize,
+      position: {
+        ...position,
+        z: -GAME.arenaHalfSize - radius,
+      },
+      normal: { x: 0, y: 0, z: -1 },
+    },
+    {
+      distance: GAME.arenaHalfSize - position.z,
+      position: {
+        ...position,
+        z: GAME.arenaHalfSize + radius,
+      },
+      normal: { x: 0, y: 0, z: 1 },
+    },
+  ].sort((a, b) => a.distance - b.distance)[0]!;
+  return { position: nearest.position, normal: nearest.normal };
+}
+
+/**
+ * Resolves a vertical fighter capsule against the complete visible floor box.
+ * Sub-stepped simulation uses this for top, side and underside contacts, so an
+ * edge dash cannot enter the solid slab and a standing capsule keeps contact
+ * until its round footprint has actually cleared the platform.
+ */
+export function resolveArenaFloorMovement(
+  from: Vec3,
+  to: Vec3,
+  radius = PLAYER_RADIUS,
+  halfHeight = PLAYER_HALF_HEIGHT,
+): ArenaFloorMovementResult {
+  const fromBottom = from.y - halfHeight;
+  const fromTop = from.y + halfHeight;
+  const toBottom = to.y - halfHeight;
+  const toTop = to.y + halfHeight;
+  const hasHorizontalContact = fighterHasArenaFloorSupport(to, radius);
+
+  if (
+    fromBottom >= ARENA_FLOOR_TOP - COLLISION_EPSILON &&
+    toBottom <= ARENA_FLOOR_TOP + COLLISION_EPSILON &&
+    hasHorizontalContact
+  )
+    return {
+      position: { ...to, y: ARENA_FLOOR_TOP + halfHeight },
+      contact: { normal: { x: 0, y: 1, z: 0 }, grounded: true },
+    };
+
+  if (
+    fromTop <= ARENA_FLOOR_BOTTOM + COLLISION_EPSILON &&
+    toTop >= ARENA_FLOOR_BOTTOM - COLLISION_EPSILON &&
+    hasHorizontalContact
+  )
+    return {
+      position: { ...to, y: ARENA_FLOOR_BOTTOM - halfHeight },
+      contact: { normal: { x: 0, y: -1, z: 0 }, grounded: false },
+    };
+
+  const overlapsFloorHeight =
+    toTop > ARENA_FLOOR_BOTTOM + COLLISION_EPSILON &&
+    toBottom < ARENA_FLOOR_TOP - COLLISION_EPSILON;
+  if (!overlapsFloorHeight) return { position: { ...to } };
+
+  const horizontal = resolveFloorHorizontalOverlap(to, radius);
+  if (!horizontal) return { position: { ...to } };
+  return {
+    position: horizontal.position,
+    contact: { normal: horizontal.normal, grounded: false },
+  };
+}
+
 export function fighterOverlapsWallHeight(
   centerY: number,
   wall: ArenaWall,

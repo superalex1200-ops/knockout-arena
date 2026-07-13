@@ -3,6 +3,7 @@ import {
   movementBlendFactor,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
+  resolveArenaFloorMovement,
   resolveArenaWallOverlaps,
   sweepArenaWalls,
   type PlayerSnapshot,
@@ -15,7 +16,7 @@ export class MovementPredictor {
   private initialized = false;
   private enabled = false;
   private grounded = true;
-  private wallBypassUntil = 0;
+  private bodyCollisionBypassUntil = 0;
   private dashRemaining = 0;
   private pendingSequences: number[] = [];
   private snapshotRevision = 0;
@@ -28,11 +29,12 @@ export class MovementPredictor {
   reconcile(snapshot: PlayerSnapshot): void {
     this.snapshotRevision++;
     if (snapshot.finisherRemainingMs !== undefined)
-      this.wallBypassUntil =
+      this.bodyCollisionBypassUntil =
         performance.now() + Math.max(0, snapshot.finisherRemainingMs);
     else if (snapshot.finisher)
-      this.wallBypassUntil = performance.now() + GAME.finisherDurationMs;
-    else this.wallBypassUntil = 0;
+      this.bodyCollisionBypassUntil =
+        performance.now() + GAME.finisherDurationMs;
+    else this.bodyCollisionBypassUntil = 0;
     this.pendingSequences = this.pendingSequences.filter(
       (sequence) => sequence > snapshot.lastProcessedInput,
     );
@@ -106,18 +108,25 @@ export class MovementPredictor {
         x: this.position.x + (this.velocity.x * dt) / substeps,
         z: this.position.z + (this.velocity.z * dt) / substeps,
       };
-      if (this.isBypassingWalls()) this.position = intended;
-      else {
-        const result = sweepArenaWalls(this.position, intended);
-        this.position = result.position;
-        if (result.contact) {
-          const inward =
-            this.velocity.x * result.contact.normal.x +
-            this.velocity.z * result.contact.normal.z;
-          if (inward < 0) {
-            this.velocity.x -= result.contact.normal.x * inward;
-            this.velocity.z -= result.contact.normal.z * inward;
-          }
+      const floorResult = resolveArenaFloorMovement(this.position, intended);
+      const floorNormal = floorResult.contact?.normal;
+      if (floorNormal) {
+        const inward =
+          this.velocity.x * floorNormal.x + this.velocity.z * floorNormal.z;
+        if (inward < 0) {
+          this.velocity.x -= floorNormal.x * inward;
+          this.velocity.z -= floorNormal.z * inward;
+        }
+      }
+      const result = sweepArenaWalls(this.position, floorResult.position);
+      this.position = result.position;
+      if (result.contact) {
+        const inward =
+          this.velocity.x * result.contact.normal.x +
+          this.velocity.z * result.contact.normal.z;
+        if (inward < 0) {
+          this.velocity.x -= result.contact.normal.x * inward;
+          this.velocity.z -= result.contact.normal.z * inward;
         }
       }
     }
@@ -130,7 +139,7 @@ export class MovementPredictor {
     if (
       !this.initialized ||
       !this.enabled ||
-      this.isBypassingWalls() ||
+      this.isBypassingBodyCollisions() ||
       local.protected ||
       this.lastBodyCollisionRevision === this.snapshotRevision
     )
@@ -163,19 +172,21 @@ export class MovementPredictor {
         this.velocity.x += normal.x * relativeNormalVelocity * 0.5;
         this.velocity.z += normal.z * relativeNormalVelocity * 0.5;
       }
-      this.position = resolveArenaWallOverlaps(this.position).position;
+      this.position = resolveArenaWallOverlaps(
+        resolveArenaFloorMovement(this.position, this.position).position,
+      ).position;
     }
   }
 
   triggerFinisher(durationMs: number = GAME.finisherDurationMs): void {
-    this.wallBypassUntil = Math.max(
-      this.wallBypassUntil,
+    this.bodyCollisionBypassUntil = Math.max(
+      this.bodyCollisionBypassUntil,
       performance.now() + Math.max(0, durationMs),
     );
   }
 
-  private isBypassingWalls(): boolean {
-    return performance.now() < this.wallBypassUntil;
+  private isBypassingBodyCollisions(): boolean {
+    return performance.now() < this.bodyCollisionBypassUntil;
   }
 
   recordInput(sequence: number): void {

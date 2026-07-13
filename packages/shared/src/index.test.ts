@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   attackTargetHit,
+  fighterHasArenaFloorSupport,
   firstArenaWallIntersection,
   isValidLobbyCode,
   knockbackForce,
   movementBlendFactor,
   normalizeLobbyCode,
+  resolveArenaFloorMovement,
   resolvePredictedWalls,
   segmentCrossesArenaFloor,
   segmentCrossesArenaWall,
@@ -92,6 +94,36 @@ describe("arena line of sight", () => {
 });
 
 describe("arena movement hitboxes", () => {
+  it("keeps the circular fighter footprint supported at straight and corner edges", () => {
+    expect(fighterHasArenaFloorSupport({ x: 15.54, z: 0 })).toBe(true);
+    expect(fighterHasArenaFloorSupport({ x: 15.56, z: 0 })).toBe(false);
+    expect(fighterHasArenaFloorSupport({ x: 15.38, z: 15.38 })).toBe(true);
+    expect(fighterHasArenaFloorSupport({ x: 15.4, z: 15.4 })).toBe(false);
+  });
+
+  it("resolves the visible floor top, side and underside as one solid box", () => {
+    const edgeLanding = resolveArenaFloorMovement(
+      { x: 15.3, y: 1.1, z: 0 },
+      { x: 15.38, y: 1.04, z: 0 },
+    );
+    expect(edgeLanding.position.y).toBe(1.1);
+    expect(edgeLanding.contact?.grounded).toBe(true);
+
+    const sideDash = resolveArenaFloorMovement(
+      { x: 15.7, y: 0.9, z: 0 },
+      { x: 15.2, y: 0.95, z: 0 },
+    );
+    expect(sideDash.position.x).toBeCloseTo(15.55);
+    expect(sideDash.contact?.normal).toMatchObject({ x: 1, y: 0, z: 0 });
+
+    const underside = resolveArenaFloorMovement(
+      { x: 0, y: -3, z: 0 },
+      { x: 0, y: -2.8, z: 0 },
+    );
+    expect(underside.position.y).toBeCloseTo(-2.9);
+    expect(underside.contact?.normal.y).toBe(-1);
+  });
+
   it("rounds player contact around a visible wall corner", () => {
     const clear = { x: -7.9, y: 1.1, z: 4 };
     expect(resolvePredictedWalls(clear)).toEqual(clear);
