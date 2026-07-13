@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   ARENA_FLOOR_BOTTOM,
   ARENA_FLOOR_TOP,
+  fighterHasArenaFloorSupport,
   GAME,
   PLAYER_HALF_HEIGHT,
   PLAYER_RADIUS,
+  resolveArenaWallOverlaps,
 } from "@knockout/shared";
 import {
   botNavigationTarget,
@@ -41,7 +43,7 @@ const penetratesFloorSlab = (player: ReturnType<typeof createPlayer>) => {
 };
 
 describe("authoritative combat simulation", () => {
-  it("gives all eight supported players distinct, arena-safe spawns", () => {
+  it("gives all eight supported players distinct, fully supported spawns", () => {
     const players = Array.from({ length: 8 }, (_, index) =>
       createPlayer(`player-${index}`, `Player ${index}`, index),
     );
@@ -53,16 +55,59 @@ describe("authoritative combat simulation", () => {
 
     expect(uniquePositions.size).toBe(players.length);
     for (const player of players) {
-      expect(Math.abs(player.position.x)).toBeLessThan(
-        GAME.arenaHalfSize - PLAYER_RADIUS,
+      expect(Math.abs(player.position.x) + PLAYER_RADIUS).toBeLessThanOrEqual(
+        GAME.arenaHalfSize,
       );
-      expect(Math.abs(player.position.z)).toBeLessThan(
-        GAME.arenaHalfSize - PLAYER_RADIUS,
+      expect(Math.abs(player.position.z) + PLAYER_RADIUS).toBeLessThanOrEqual(
+        GAME.arenaHalfSize,
       );
+      expect(fighterHasArenaFloorSupport(player.position)).toBe(true);
       expect(player.position.y - PLAYER_HALF_HEIGHT).toBeCloseTo(
         ARENA_FLOOR_TOP,
       );
     }
+  });
+
+  it("keeps all eight spawn points clear of arena wall colliders", () => {
+    const players = Array.from({ length: 8 }, (_, index) =>
+      createPlayer(`wall-safe-${index}`, `Wall Safe ${index}`, index),
+    );
+
+    for (const player of players) {
+      const resolved = resolveArenaWallOverlaps(player.position);
+      expect.soft(resolved.contact, player.id).toBeUndefined();
+      expect.soft(resolved.position, player.id).toEqual(player.position);
+    }
+  });
+
+  it("does not correct any spawn position during its first idle step", () => {
+    const players = Array.from({ length: 8 }, (_, index) =>
+      createPlayer(`idle-safe-${index}`, `Idle Safe ${index}`, index),
+    );
+    const now = Date.now() + GAME.spawnProtectionMs + 1;
+
+    for (const player of players) {
+      const spawn = { ...player.position };
+      stepPlayer(player, 1 / GAME.tickRate, now);
+      expect.soft(player.position, player.id).toEqual(spawn);
+    }
+  });
+
+  it("separates every pair of spawn capsules before simulation starts", () => {
+    const players = Array.from({ length: 8 }, (_, index) =>
+      createPlayer(`separated-${index}`, `Separated ${index}`, index),
+    );
+
+    for (let first = 0; first < players.length; first++)
+      for (let second = first + 1; second < players.length; second++) {
+        const a = players[first]!;
+        const b = players[second]!;
+        const distance = Math.hypot(
+          a.position.x - b.position.x,
+          a.position.z - b.position.z,
+        );
+        expect(distance, `${a.id}:${b.id}`).toBeGreaterThan(PLAYER_RADIUS * 2);
+      }
   });
 
   it("fully clears knockback on every respawn", () => {

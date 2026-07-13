@@ -145,7 +145,7 @@ export const firstPersonGlovePose = ({
 }): FirstPersonGlovePose => {
   if (blocking)
     return {
-      position: new THREE.Vector3(side * 0.31, -0.27, -1.52),
+      position: new THREE.Vector3(side * 0.31, -0.27, -1.58),
       rotationX: -0.38,
       rotationZ: side * 0.17,
     };
@@ -154,7 +154,7 @@ export const firstPersonGlovePose = ({
       position: new THREE.Vector3(
         side * (0.48 + chargeAmount * 0.09),
         -0.58 - chargeAmount * 0.06,
-        -1.64 + chargeAmount * 0.12,
+        -1.72 + chargeAmount * 0.12,
       ),
       rotationX: -0.04 - chargeAmount * 0.36,
       rotationZ: side * (0.06 - chargeAmount * 0.2),
@@ -173,31 +173,20 @@ export const firstPersonGlovePose = ({
   };
 };
 
-const smoothGloveShell = (
-  side: -1 | 1,
-  firstPerson: boolean,
-): THREE.BufferGeometry => {
+const smoothGloveShell = (firstPerson: boolean): THREE.BufferGeometry => {
   const scale = firstPerson ? 0.95 : 1;
-  return merged(
-    transformed(
-      new THREE.SphereGeometry(0.16 * scale, 32, 20),
-      [0, 0.012, 0.006],
-      [0, 0, 0],
-      [1, 0.76, 1.06],
-    ),
-    transformed(
-      new THREE.SphereGeometry(0.045 * scale, 24, 16),
-      [-side * 0.12 * scale, -0.085 * scale, 0.012],
-      [0, 0, 0],
-      [1, 0.86, 0.9],
-    ),
+  return transformed(
+    new THREE.SphereGeometry(0.16 * scale, 32, 20),
+    [0, 0.012, 0.006],
+    [0, 0, 0],
+    [1.08, 0.82, 1.14],
   );
 };
 
 const smoothGloveCuff = (firstPerson: boolean): THREE.BufferGeometry => {
   if (firstPerson)
     return transformed(
-      new THREE.CylinderGeometry(0.072, 0.085, 0.1, 32, 1, true),
+      new THREE.CylinderGeometry(0.072, 0.085, 0.1, 32),
       [0, -0.006, 0.205],
       [Math.PI / 2, 0, 0],
       [1.05, 0.86, 0.82],
@@ -210,36 +199,19 @@ const smoothGloveCuff = (firstPerson: boolean): THREE.BufferGeometry => {
   );
 };
 
-const smoothForearmSleeve = (side: -1 | 1): THREE.BufferGeometry => {
-  const geometry = new THREE.CylinderGeometry(0.095, 0.068, 0.42, 24, 6);
-  const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
-  for (let index = 0; index < positions.count; index++) {
-    const alongArm = THREE.MathUtils.clamp(
-      (positions.getY(index) + 0.21) / 0.42,
-      0,
-      1,
-    );
-    positions.setX(
-      index,
-      positions.getX(index) + side * 0.025 * Math.sin(Math.PI * alongArm),
-    );
-  }
-  positions.needsUpdate = true;
-  geometry.computeVertexNormals();
-  return transformed(
-    geometry,
-    [side * 0.02, -0.17, 0.273],
-    [2.55, 0, side * 0.1],
-    [1, 1, 0.78],
+const smoothForearmSleeve = (): THREE.BufferGeometry =>
+  transformed(
+    new THREE.CylinderGeometry(0.07, 0.085, 0.45, 24),
+    [0, -0.18, 0.34],
+    [2.5, 0, 0],
   );
-};
 
 export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   const group = new THREE.Group();
   group.name =
     side < 0 ? "first-person-glove-left" : "first-person-glove-right";
   group.userData.side = side;
-  group.userData.design = "combat-robot-glove-v8";
+  group.userData.design = "combat-robot-glove-v9";
 
   const primary = standardMaterial(0xf23d63, {
     roughness: 0.58,
@@ -252,7 +224,7 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
     metalness: 0.02,
   });
 
-  const shell = new THREE.Mesh(smoothGloveShell(side, true), primary);
+  const shell = new THREE.Mesh(smoothGloveShell(true), primary);
   shell.name = "fp-glove-shell";
   group.add(shell);
 
@@ -260,7 +232,7 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   cuff.name = "fp-cuff";
   group.add(cuff);
 
-  const sleeve = new THREE.Mesh(smoothForearmSleeve(side), sleeveMaterial);
+  const sleeve = new THREE.Mesh(smoothForearmSleeve(), sleeveMaterial);
   sleeve.name = "fp-sleeve";
   group.add(sleeve);
 
@@ -274,7 +246,6 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
       punchPhase: 0,
     }).position,
   );
-  group.rotation.y = side * -0.035;
   group.userData.appearance = {
     key: "",
     primary,
@@ -293,10 +264,10 @@ const makeGlove = (
 ): THREE.Group => {
   const glove = new THREE.Group();
   glove.name = side < 0 ? "glove-left" : "glove-right";
-  glove.userData.design = "combat-robot-glove-v8";
+  glove.userData.design = "combat-robot-glove-v9";
   glove.position.copy(fighterRestHandPosition(side));
 
-  const shell = new THREE.Mesh(smoothGloveShell(side, false), primary);
+  const shell = new THREE.Mesh(smoothGloveShell(false), primary);
   shell.name = side < 0 ? "glove-shell-left" : "glove-shell-right";
   glove.add(shell);
 
@@ -318,12 +289,6 @@ const makeLeg = (
 
   const leg = new THREE.Mesh(
     merged(
-      transformed(
-        new THREE.CapsuleGeometry(0.12, 0.07, 8, 18),
-        [0, 0, 0],
-        [0, 0, 0],
-        [1, 0.9, 0.84],
-      ),
       transformed(
         new THREE.CylinderGeometry(0.105, 0.118, 0.32, 18),
         [0, -0.19, 0],
@@ -429,7 +394,7 @@ export const createRemoteFighter = (
 ): FighterVisual => {
   const root = new THREE.Group();
   root.name = `fighter-${player.id}`;
-  root.userData.design = "cohesive-combat-robot-v8";
+  root.userData.design = "cohesive-combat-robot-v9";
   root.position.set(
     player.position.x,
     player.position.y - FIGHTER_FLOOR_OFFSET,
@@ -489,12 +454,6 @@ export const createRemoteFighter = (
 
   const suitCore = new THREE.Mesh(
     merged(
-      transformed(
-        new THREE.CylinderGeometry(0.245, 0.27, 0.24, 18),
-        [0, 0.82, 0.012],
-        [0, 0, 0],
-        [1, 1, 0.6],
-      ),
       transformed(
         new THREE.CylinderGeometry(0.115, 0.13, 0.16, 18),
         [0, 1.7, 0.015],
@@ -721,19 +680,7 @@ const poseArm = (arm: FighterArmRig, glove: THREE.Group): void => {
     glove.quaternion,
   );
   arm.wrist.copy(glove.position).add(wristOffset);
-  const shoulderToWrist = arm.wrist.clone().sub(arm.shoulder);
-  const distance = Math.max(0.001, shoulderToWrist.length());
-  const direction = shoulderToWrist.clone().multiplyScalar(1 / distance);
-  const midpoint = arm.shoulder.clone().add(arm.wrist).multiplyScalar(0.5);
-  const bend = new THREE.Vector3(arm.side * 0.28, -1, -0.38);
-  bend.addScaledVector(direction, -bend.dot(direction));
-  if (bend.lengthSq() < 0.0001) bend.set(arm.side, -1, -0.2);
-  bend.normalize();
-  const segmentLength = Math.max(0.36, distance * 0.51);
-  const bendDistance = Math.sqrt(
-    Math.max(0.0025, segmentLength ** 2 - (distance * 0.5) ** 2),
-  );
-  const elbow = midpoint.addScaledVector(bend, bendDistance);
+  const elbow = arm.shoulder.clone().add(arm.wrist).multiplyScalar(0.5);
   arm.elbow.position.copy(elbow);
   alignArmSegment(arm.upper, arm.shoulder, elbow);
   alignArmSegment(arm.forearm, elbow, arm.wrist);

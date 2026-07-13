@@ -72,7 +72,7 @@ describe("CharacterModel", () => {
     expect(namedMesh(visual.root, "visor")).toBeDefined();
     expect(namedMesh(visual.root, "chest-chevron")).toBeDefined();
     expect(meshes.length).toBe(23);
-    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v8");
+    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v9");
     expect(meshes.some((mesh) => mesh.name.includes("knuckle"))).toBe(false);
     expect(
       meshes.some((mesh) => mesh.geometry.constructor === THREE.BoxGeometry),
@@ -112,6 +112,9 @@ describe("CharacterModel", () => {
     expect(gloveSize.x / torsoSize.x).toBeLessThan(0.42);
     expect(gloveSize.z / gloveSize.x).toBeGreaterThan(0.9);
     expect(gloveSize.z / gloveSize.x).toBeLessThan(1.3);
+    const legSuit = namedMesh(visual.leftLeg, "leg-suit-left");
+    legSuit.geometry.computeBoundingBox();
+    expect(legSuit.geometry.boundingBox!.max.y).toBeLessThan(-0.015);
     for (const jointName of ["elbow-left", "elbow-right"]) {
       const jointSize = boundsFor(namedMesh(visual.root, jointName)).getSize(
         new THREE.Vector3(),
@@ -135,6 +138,7 @@ describe("CharacterModel", () => {
     const visorSize = boundsFor(visor).getSize(new THREE.Vector3());
     const frameSize = boundsFor(visorFrame).getSize(new THREE.Vector3());
     const faceSize = boundsFor(faceplate).getSize(new THREE.Vector3());
+    suitCore.geometry.computeBoundingBox();
 
     expect(boundsFor(helmet).intersectsBox(boundsFor(faceplate))).toBe(true);
     expect(boundsFor(faceplate).intersectsBox(boundsFor(visorFrame))).toBe(
@@ -145,6 +149,7 @@ describe("CharacterModel", () => {
     expect(frameSize.x).toBeGreaterThan(visorSize.x);
     expect(faceSize.x).toBeGreaterThan(frameSize.x);
     expect(boundsFor(torso).intersectsBox(boundsFor(suitCore))).toBe(true);
+    expect(suitCore.geometry.boundingBox!.min.y).toBeGreaterThan(1.2);
     expect(boundsFor(torso).intersectsBox(boundsFor(visual.leftLeg))).toBe(
       true,
     );
@@ -209,6 +214,18 @@ describe("CharacterModel", () => {
       expect(
         visual.rightArm.elbow.position.toArray().every(Number.isFinite),
       ).toBe(true);
+      expect(visual.leftArm.elbow.position).toEqual(
+        visual.leftArm.shoulder
+          .clone()
+          .add(visual.leftArm.wrist)
+          .multiplyScalar(0.5),
+      );
+      expect(visual.rightArm.elbow.position).toEqual(
+        visual.rightArm.shoulder
+          .clone()
+          .add(visual.rightArm.wrist)
+          .multiplyScalar(0.5),
+      );
       for (const [arm, glove, cuffName] of [
         [visual.leftArm, visual.leftGlove, "glove-cuff-left"],
         [visual.rightArm, visual.rightGlove, "glove-cuff-right"],
@@ -256,11 +273,12 @@ describe("CharacterModel", () => {
           "fp-cuff",
           "fp-sleeve",
         ]);
-        expect(fist.userData.design).toBe("combat-robot-glove-v8");
+        expect(fist.userData.design).toBe("combat-robot-glove-v9");
         expect(
           fist.children.some((child) => child.name.includes("knuckle")),
         ).toBe(false);
         expect(fist.getObjectByName("fp-forearm-armor")).toBeUndefined();
+        expect(shell.geometry).toBeInstanceOf(THREE.SphereGeometry);
         expect(overlapVolume(shell, cuff)).toBeGreaterThan(0.00005);
         expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.001);
         expect(cuff.material).toBe(shell.material);
@@ -269,12 +287,16 @@ describe("CharacterModel", () => {
           -0.9,
         );
         expect(size.x).toBeLessThan(0.44);
-        expect(size.y).toBeLessThan(0.56);
-        expect(size.z).toBeLessThan(0.82);
+        expect(size.y).toBeLessThan(0.62);
+        expect(size.z).toBeLessThan(0.9);
         shell.geometry.computeBoundingBox();
         const localShellSize = shell.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
+        const localShellCenter = shell.geometry.boundingBox!.getCenter(
+          new THREE.Vector3(),
+        );
+        expect(localShellCenter.x).toBeCloseTo(0, 5);
         expect(localShellSize.z / localShellSize.x).toBeGreaterThan(0.9);
         expect(localShellSize.z / localShellSize.x).toBeLessThan(1.3);
         cuff.geometry.computeBoundingBox();
@@ -285,17 +307,21 @@ describe("CharacterModel", () => {
         const localSleeveSize = sleeve.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
+        const localSleeveCenter = sleeve.geometry.boundingBox!.getCenter(
+          new THREE.Vector3(),
+        );
+        expect(localSleeveCenter.x).toBeCloseTo(0, 5);
         expect(localShellSize.x / localCuffSize.x).toBeGreaterThan(1.4);
         expect(localShellSize.x / localSleeveSize.x).toBeGreaterThan(1.3);
         expect(localSleeveSize.z / localSleeveSize.x).toBeLessThan(3.5);
         expect(localSleeveSize.y / localSleeveSize.x).toBeGreaterThan(1.5);
         expect(sleeve.geometry).toBeInstanceOf(THREE.CylinderGeometry);
         const sleeveShape = sleeve.geometry as THREE.CylinderGeometry;
-        expect(sleeveShape.parameters.height).toBeCloseTo(0.42);
-        expect(sleeveShape.parameters.radiusTop).toBeCloseTo(0.095);
-        expect(sleeveShape.parameters.radiusBottom).toBeCloseTo(0.068);
+        expect(sleeveShape.parameters.height).toBeCloseTo(0.45);
+        expect(sleeveShape.parameters.radiusTop).toBeCloseTo(0.07);
+        expect(sleeveShape.parameters.radiusBottom).toBeCloseTo(0.085);
         expect(sleeveShape.parameters.radialSegments).toBe(24);
-        expect(sleeveShape.parameters.heightSegments).toBeGreaterThanOrEqual(5);
+        expect(sleeveShape.parameters.heightSegments).toBe(1);
       }
       expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.035);
       expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.035);

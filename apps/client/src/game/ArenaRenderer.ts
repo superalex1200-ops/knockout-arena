@@ -26,6 +26,7 @@ import {
   updateFirstPersonGloveAppearance,
   type FighterVisual,
 } from "./CharacterModel";
+import { shouldSnapRemoteFighter } from "./remoteInterpolation";
 
 type Input = {
   forward: boolean;
@@ -61,6 +62,7 @@ export class ArenaRenderer {
   private clock = new THREE.Clock();
   private players = new Map<string, FighterVisual>();
   private snapshots = new Map<string, PlayerSnapshot>();
+  private matchId = "";
   private remoteAttacks = new Map<
     string,
     {
@@ -218,6 +220,10 @@ export class ArenaRenderer {
       this.sequence = Math.max(this.sequence, message.lastProcessedInput + 1);
     }
     if (message.type === "snapshot") {
+      const previousSnapshots = this.snapshots;
+      const matchChanged =
+        this.matchId !== "" && message.matchId !== this.matchId;
+      this.matchId = message.matchId;
       this.phase = message.phase;
       this.rules = message.rules;
       const ids = new Set(message.players.map((p) => p.id));
@@ -242,7 +248,22 @@ export class ArenaRenderer {
           this.players.set(player.id, visual);
         } else {
           const visual = this.players.get(player.id);
-          if (visual) updateFighterAppearance(visual, player);
+          if (visual) {
+            updateFighterAppearance(visual, player);
+            const previous = previousSnapshots.get(player.id);
+            if (
+              previous &&
+              shouldSnapRemoteFighter(previous, player, matchChanged)
+            ) {
+              visual.root.position.set(
+                player.position.x,
+                player.position.y - 1.1,
+                player.position.z,
+              );
+              visual.root.rotation.y = player.yaw;
+              this.remoteAttacks.delete(player.id);
+            }
+          }
         }
       }
       const local = message.players.find((p) => p.id === this.playerId);
