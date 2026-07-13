@@ -1,5 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
-import { normalizeLobbyCode, type MatchMode } from "@knockout/shared";
+import {
+  isValidLobbyCode,
+  normalizeLobbyCode,
+  type MatchMode,
+} from "@knockout/shared";
 import { Game } from "./Game";
 import { loadSettings, saveSettings, type GameSettings } from "./settings";
 import {
@@ -9,9 +13,13 @@ import {
   type MatchHistoryEntry,
 } from "./profile";
 import { SettingsPanel } from "./SettingsPanel";
+import { loadActiveGameSession } from "./gameSession";
 
 type Session = { mode: MatchMode; code: string; createRoom: boolean };
 const randomCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+const invitedRoom = normalizeLobbyCode(
+  new URLSearchParams(location.search).get("room") ?? "",
+);
 
 export function App() {
   const [name, setName] = useState(
@@ -19,10 +27,12 @@ export function App() {
       localStorage.getItem("ko-name") ??
       `Rookie${Math.floor(Math.random() * 90 + 10)}`,
   );
-  const [code, setCode] = useState(
-    new URLSearchParams(location.search).get("room") ?? "",
+  const [code, setCode] = useState(invitedRoom);
+  const [session, setSession] = useState<Session | undefined>(() =>
+    isValidLobbyCode(invitedRoom)
+      ? { mode: "private", code: invitedRoom, createRoom: false }
+      : loadActiveGameSession(),
   );
-  const [session, setSession] = useState<Session>();
   const [settings, setSettings] = useState<GameSettings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);

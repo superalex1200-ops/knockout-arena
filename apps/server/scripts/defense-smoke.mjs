@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import WebSocket from "ws";
+import { websocketOptions } from "./ws-origin.mjs";
 
 const url = process.env.TEST_SERVER_URL ?? "ws://localhost:2567/ws";
 const roomCode = `D${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-const socket = new WebSocket(url);
+const socket = new WebSocket(url, websocketOptions(url));
 let playerId = "";
 let stage = 0;
 let finished = false;

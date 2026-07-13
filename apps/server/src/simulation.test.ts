@@ -36,6 +36,30 @@ const penetratesFloorSlab = (player: ReturnType<typeof createPlayer>) => {
 };
 
 describe("authoritative combat simulation", () => {
+  it("gives all eight supported players distinct, arena-safe spawns", () => {
+    const players = Array.from({ length: 8 }, (_, index) =>
+      createPlayer(`player-${index}`, `Player ${index}`, index),
+    );
+    const uniquePositions = new Set(
+      players.map(
+        ({ position }) => `${position.x}:${position.y}:${position.z}`,
+      ),
+    );
+
+    expect(uniquePositions.size).toBe(players.length);
+    for (const player of players) {
+      expect(Math.abs(player.position.x)).toBeLessThan(
+        GAME.arenaHalfSize - PLAYER_RADIUS,
+      );
+      expect(Math.abs(player.position.z)).toBeLessThan(
+        GAME.arenaHalfSize - PLAYER_RADIUS,
+      );
+      expect(player.position.y - PLAYER_HALF_HEIGHT).toBeCloseTo(
+        ARENA_FLOOR_TOP,
+      );
+    }
+  });
+
   it("fully clears knockback on every respawn", () => {
     const player = createPlayer("a", "Alpha", 0);
     player.knockback = 147;

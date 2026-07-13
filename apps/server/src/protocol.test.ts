@@ -96,4 +96,18 @@ describe("client protocol validation", () => {
       ),
     ).toBeUndefined();
   });
+
+  it("validates authoritative room-lifecycle commands", () => {
+    for (const type of ["leave", "startMatch", "returnToLobby"] as const)
+      expect(parseClientMessage(JSON.stringify({ type }))).toEqual({ type });
+    expect(
+      parseClientMessage(JSON.stringify({ type: "rematchVote", vote: true })),
+    ).toEqual({ type: "rematchVote", vote: true });
+    expect(
+      parseClientMessage(JSON.stringify({ type: "rematchVote", vote: "yes" })),
+    ).toBeUndefined();
+    expect(
+      parseClientMessage(JSON.stringify({ type: "leave", playerId: "other" })),
+    ).toBeUndefined();
+  });
 });

@@ -52,6 +52,7 @@ export type GameUiAction = "scoreboard" | "chat";
 
 export class ArenaRenderer {
   private scene = new THREE.Scene();
+  private arenaWorld?: THREE.Group;
   private camera = new THREE.PerspectiveCamera(76, 1, 0.05, 240);
   private renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -128,21 +129,13 @@ export class ArenaRenderer {
     ) => void = () => {},
   ) {
     this.audio = new AudioSystem(settings.volume);
-    this.renderer.setPixelRatio(
-      Math.min(
-        devicePixelRatio,
-        settings.graphics === "low"
-          ? 1
-          : settings.graphics === "medium"
-            ? 1.4
-            : 1.8,
-      ),
-    );
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.shadowMap.enabled = settings.graphics === "high";
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.configureRendererQuality();
+    this.camera.fov = settings.fov;
+    this.camera.updateProjectionMatrix();
     host.appendChild(this.renderer.domElement);
     this.buildWorld();
     this.bindEvents();
@@ -152,10 +145,70 @@ export class ArenaRenderer {
   private buildWorld(): void {
     this.scene.background = new THREE.Color(0x08091c);
     this.scene.fog = new THREE.FogExp2(0x0a1027, 0.0095);
-    this.scene.add(createArenaWorld(this.settings.graphics));
+    this.rebuildArenaWorld();
     this.fists = [createFirstPersonGlove(-1), createFirstPersonGlove(1)];
     for (const fist of this.fists) this.camera.add(fist);
     this.scene.add(this.camera);
+  }
+
+  private configureRendererQuality(): void {
+    const maximumPixelRatio =
+      this.settings.graphics === "low"
+        ? 1
+        : this.settings.graphics === "medium"
+          ? 1.4
+          : 1.8;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, maximumPixelRatio));
+    this.renderer.shadowMap.enabled = this.settings.graphics === "high";
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  private rebuildArenaWorld(): void {
+    const previous = this.arenaWorld;
+    const next = createArenaWorld(this.settings.graphics);
+    this.arenaWorld = next;
+    this.scene.add(next);
+    if (previous) {
+      this.scene.remove(previous);
+      previous.traverse((object) => {
+        if (object instanceof THREE.DirectionalLight) object.shadow.dispose();
+      });
+      disposeObject3D(previous);
+    }
+  }
+
+  private updateFighterShadowQuality(): void {
+    const enabled = this.settings.graphics === "high";
+    const shadowCasters = new Set([
+      "primary-shell",
+      "suit-core",
+      "helmet-shell",
+      "leg-suit-left",
+      "leg-suit-right",
+    ]);
+    for (const visual of this.players.values())
+      visual.root.traverse((object) => {
+        if (object instanceof THREE.Mesh && shadowCasters.has(object.name))
+          object.castShadow = enabled;
+      });
+  }
+
+  applySettings(settings: GameSettings): void {
+    const graphicsChanged = settings.graphics !== this.settings.graphics;
+    const fovChanged = settings.fov !== this.settings.fov;
+    this.settings = settings;
+    this.audio.setVolume(settings.volume);
+
+    if (graphicsChanged) {
+      this.configureRendererQuality();
+      this.rebuildArenaWorld();
+      this.updateFighterShadowQuality();
+      this.resize();
+    }
+    if (fovChanged) {
+      this.camera.fov = settings.fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   onMessage(message: ServerMessage): void {
@@ -360,7 +413,11 @@ export class ArenaRenderer {
         -1.2,
         Math.min(
           1.2,
-          this.pitch - e.movementY * 0.0018 * this.settings.sensitivity,
+          this.pitch +
+            e.movementY *
+              0.0018 *
+              this.settings.sensitivity *
+              (this.settings.invertY ? 1 : -1),
         ),
       );
       if (e.movementX || e.movementY) this.onTutorialAction("look");
@@ -899,7 +956,7 @@ export class ArenaRenderer {
     this.dashEffect = Math.max(0, this.dashEffect - dt * 4.5);
     const flightFov = Math.min(6, Math.max(0, flightSpeed - 10) * 0.32);
     const targetFov =
-      76 +
+      this.settings.fov +
       this.dashEffect * 9 +
       flightFov * (this.settings.reducedMotion ? 0.2 : 1);
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {

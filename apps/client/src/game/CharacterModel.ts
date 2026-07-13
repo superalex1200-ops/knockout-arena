@@ -4,10 +4,9 @@ import type { PlayerSnapshot } from "@knockout/shared";
 
 const FIGHTER_FLOOR_OFFSET = 1.1;
 const ARM_GEOMETRY_LENGTH = 0.48;
-const ARM_RADIUS = 0.108;
 const SHOULDER_Y = 1.46;
-const SHOULDER_X = 0.4;
-const GLOVE_CUFF_ANCHOR = new THREE.Vector3(0, -0.01, 0.258);
+const SHOULDER_X = 0.41;
+const GLOVE_CUFF_ANCHOR = new THREE.Vector3(0, -0.008, 0.245);
 
 type Palette = {
   key: string;
@@ -178,21 +177,21 @@ const smoothGloveShell = (
   side: -1 | 1,
   firstPerson: boolean,
 ): THREE.BufferGeometry => {
-  const scale = firstPerson ? 0.91 : 1;
-  const frontRadius = 0.11 * scale;
+  const scale = firstPerson ? 0.88 : 1;
+  const frontRadius = 0.088 * scale;
   const profile = [
-    new THREE.Vector2(frontRadius, -0.245 * scale),
-    new THREE.Vector2(0.145 * scale, -0.222 * scale),
-    new THREE.Vector2(0.164 * scale, -0.145 * scale),
-    new THREE.Vector2(0.166 * scale, -0.035 * scale),
-    new THREE.Vector2(0.153 * scale, 0.08 * scale),
-    new THREE.Vector2(0.13 * scale, 0.18 * scale),
-    new THREE.Vector2(0.103 * scale, 0.275 * scale),
+    new THREE.Vector2(frontRadius, -0.235 * scale),
+    new THREE.Vector2(0.126 * scale, -0.205 * scale),
+    new THREE.Vector2(0.148 * scale, -0.132 * scale),
+    new THREE.Vector2(0.151 * scale, -0.025 * scale),
+    new THREE.Vector2(0.142 * scale, 0.082 * scale),
+    new THREE.Vector2(0.119 * scale, 0.172 * scale),
+    new THREE.Vector2(0.092 * scale, 0.255 * scale),
   ];
   const shellScale: [number, number, number] = firstPerson
-    ? [1, 0.96, 0.78]
-    : [1.04, 1, 0.82];
-  const thumbRadius = firstPerson ? 0.052 : 0.059;
+    ? [1, 0.92, 0.82]
+    : [1.03, 0.95, 0.84];
+  const thumbRadius = firstPerson ? 0.034 : 0.041;
   return merged(
     transformed(
       new THREE.LatheGeometry(profile, firstPerson ? 28 : 24),
@@ -201,41 +200,41 @@ const smoothGloveShell = (
       shellScale,
     ),
     transformed(
-      new THREE.CircleGeometry(frontRadius, firstPerson ? 28 : 24),
-      [0, 0, -0.245 * scale * shellScale[1]],
-      [0, Math.PI, 0],
-      [shellScale[0], shellScale[2], 1],
+      new THREE.SphereGeometry(1, firstPerson ? 24 : 20, 12),
+      [0, 0, -0.22 * scale],
+      [0, 0, 0],
+      [frontRadius * 1.16, frontRadius, 0.058 * scale],
     ),
     transformed(
-      new THREE.SphereGeometry(thumbRadius, 16, 12),
-      [-side * (firstPerson ? 0.098 : 0.112), -0.026, -0.005],
-      [0.08, 0, side * 0.34],
-      [0.82, 0.82, 1.12],
+      new THREE.CapsuleGeometry(
+        thumbRadius,
+        firstPerson ? 0.058 : 0.068,
+        8,
+        16,
+      ),
+      [-side * (firstPerson ? 0.082 : 0.096), -0.03, -0.008],
+      [0.88, 0, side * 0.38],
+      [0.88, 1, 0.9],
     ),
   );
 };
 
 const smoothGloveCuff = (firstPerson: boolean): THREE.BufferGeometry => {
-  const radius = firstPerson ? 0.092 : 0.108;
-  const center = firstPerson ? 0.267 : 0.292;
-  const length = firstPerson ? 0.105 : 0.12;
+  const radius = firstPerson ? 0.082 : 0.096;
+  const center = firstPerson ? 0.238 : 0.265;
+  const length = firstPerson ? 0.11 : 0.12;
   return merged(
     transformed(
-      new THREE.CylinderGeometry(radius * 1.04, radius * 0.96, length, 20),
+      new THREE.CylinderGeometry(radius * 1.04, radius * 0.94, length, 24),
       [0, 0, center],
       [Math.PI / 2, 0, 0],
-      [1, 1, 0.82],
+      [1, 1, 0.9],
     ),
     transformed(
-      new THREE.TorusGeometry(
-        radius * 1.01,
-        firstPerson ? 0.009 : 0.011,
-        8,
-        24,
-      ),
+      new THREE.TorusGeometry(radius * 1.01, firstPerson ? 0.008 : 0.01, 8, 24),
       [0, 0, center - length * 0.42],
       [0, 0, 0],
-      [1, 0.82, 1],
+      [1, 0.9, 1],
     ),
   );
 };
@@ -245,7 +244,7 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   group.name =
     side < 0 ? "first-person-glove-left" : "first-person-glove-right";
   group.userData.side = side;
-  group.userData.design = "combat-robot-glove-v5";
+  group.userData.design = "combat-robot-glove-v6";
 
   const primary = standardMaterial(0xf23d63, {
     roughness: 0.5,
@@ -273,19 +272,11 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   group.add(cuff);
 
   const sleeve = new THREE.Mesh(
-    merged(
-      transformed(
-        new THREE.SphereGeometry(0.09, 18, 12),
-        [0, -0.01, 0.292],
-        [0, 0, 0],
-        [1, 0.82, 0.86],
-      ),
-      transformed(
-        new THREE.CylinderGeometry(0.112, 0.087, 0.32, 20),
-        [0, -0.01, 0.445],
-        [Math.PI / 2, 0, 0],
-        [1, 1, 0.82],
-      ),
+    transformed(
+      new THREE.CylinderGeometry(0.084, 0.108, 0.4, 24),
+      [0, -0.008, 0.43],
+      [Math.PI / 2, 0, 0],
+      [1, 1, 0.92],
     ),
     sleeveMaterial,
   );
@@ -295,9 +286,9 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   const forearmArmor = new THREE.Mesh(
     transformed(
       new THREE.CapsuleGeometry(0.034, 0.16, 8, 16),
-      [0, 0.068, 0.445],
+      [0, 0.074, 0.43],
       [Math.PI / 2, 0, 0],
-      [1.4, 0.56, 0.82],
+      [1.4, 1, 0.55],
     ),
     primary,
   );
@@ -336,7 +327,7 @@ const makeGlove = (
 ): THREE.Group => {
   const glove = new THREE.Group();
   glove.name = side < 0 ? "glove-left" : "glove-right";
-  glove.userData.design = "combat-robot-glove-v5";
+  glove.userData.design = "combat-robot-glove-v6";
   glove.position.copy(fighterRestHandPosition(side));
 
   const shell = new THREE.Mesh(smoothGloveShell(side, false), primary);
@@ -357,33 +348,39 @@ const makeLeg = (
 ): THREE.Group => {
   const pivot = new THREE.Group();
   pivot.name = side < 0 ? "leg-left" : "leg-right";
-  pivot.position.set(side * 0.18, 0.88, 0.01);
+  pivot.position.set(side * 0.18, 0.9, 0.01);
 
   const leg = new THREE.Mesh(
     merged(
       transformed(
-        new THREE.SphereGeometry(0.15, 18, 12),
-        [0, 0.015, 0],
+        new THREE.CapsuleGeometry(0.12, 0.07, 8, 18),
         [0, 0, 0],
-        [1, 0.92, 0.9],
-      ),
-      transformed(
-        new THREE.CapsuleGeometry(0.142, 0.18, 8, 16),
-        [0, -0.18, 0],
-        [0.025 * side, 0, 0],
-        [1, 1, 0.9],
-      ),
-      transformed(
-        new THREE.SphereGeometry(0.12, 18, 12),
-        [0, -0.405, -0.005],
         [0, 0, 0],
-        [1.04, 0.92, 0.92],
+        [1, 0.9, 0.84],
       ),
       transformed(
-        new THREE.CapsuleGeometry(0.118, 0.18, 8, 16),
-        [0, -0.61, 0.008],
-        [-0.018 * side, 0, 0],
-        [1, 1, 0.9],
+        new THREE.CylinderGeometry(0.105, 0.118, 0.32, 18),
+        [0, -0.19, 0],
+        [0, 0, side * 0.025],
+        [1, 1, 0.86],
+      ),
+      transformed(
+        new THREE.CapsuleGeometry(0.09, 0.04, 8, 16),
+        [0, -0.4, -0.002],
+        [0, 0, 0],
+        [1.04, 0.86, 0.86],
+      ),
+      transformed(
+        new THREE.CylinderGeometry(0.1, 0.085, 0.31, 18),
+        [0, -0.61, 0.006],
+        [0, 0, -side * 0.018],
+        [1, 1, 0.86],
+      ),
+      transformed(
+        new THREE.CapsuleGeometry(0.082, 0.13, 8, 16),
+        [0, -0.81, -0.07],
+        [Math.PI / 2, 0, 0],
+        [1.15, 1, 0.72],
       ),
     ),
     suit,
@@ -394,28 +391,22 @@ const makeLeg = (
   const kneePad = new THREE.Mesh(
     merged(
       transformed(
-        new THREE.SphereGeometry(1, 18, 12),
-        [0, -0.19, -0.115],
-        [-0.05, 0, 0],
-        [0.122, 0.18, 0.07],
-      ),
-      transformed(
-        new THREE.SphereGeometry(1, 18, 12),
-        [0, -0.405, -0.12],
-        [-0.1, 0, 0],
-        [0.13, 0.082, 0.072],
-      ),
-      transformed(
-        new THREE.CapsuleGeometry(0.082, 0.15, 8, 14),
-        [0, -0.625, -0.066],
+        new THREE.CapsuleGeometry(0.047, 0.16, 8, 16),
+        [0, -0.18, -0.105],
         [-0.04, 0, 0],
-        [1, 1, 0.74],
+        [1.45, 1, 0.5],
       ),
       transformed(
-        new THREE.SphereGeometry(1, 18, 12),
-        [0, -0.82, -0.075],
-        [0, 0, 0],
-        [0.158, 0.1, 0.215],
+        new THREE.CapsuleGeometry(0.052, 0.035, 8, 16),
+        [0, -0.4, -0.098],
+        [-0.08, 0, 0],
+        [1.4, 0.8, 0.46],
+      ),
+      transformed(
+        new THREE.CapsuleGeometry(0.04, 0.17, 8, 16),
+        [0, -0.61, -0.08],
+        [-0.04, 0, 0],
+        [1.45, 1, 0.55],
       ),
     ),
     primary,
@@ -430,20 +421,20 @@ const makeArm = (
   side: -1 | 1,
   suit: THREE.MeshStandardMaterial,
 ): FighterArmRig => {
-  const geometry = new THREE.CapsuleGeometry(
-    ARM_RADIUS,
-    ARM_GEOMETRY_LENGTH - ARM_RADIUS * 2,
-    8,
-    14,
+  const upper = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.095, 0.11, ARM_GEOMETRY_LENGTH, 20),
+    suit,
   );
-  const upper = new THREE.Mesh(geometry, suit);
-  const forearm = new THREE.Mesh(geometry.clone(), suit);
+  const forearm = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.102, ARM_GEOMETRY_LENGTH, 20),
+    suit,
+  );
   const elbow = new THREE.Mesh(
     transformed(
       new THREE.SphereGeometry(1, 18, 12),
       [0, 0, 0],
       [0, 0, 0],
-      [0.118, 0.102, 0.106],
+      [0.108, 0.078, 0.096],
     ),
     suit,
   );
@@ -472,7 +463,7 @@ export const createRemoteFighter = (
 ): FighterVisual => {
   const root = new THREE.Group();
   root.name = `fighter-${player.id}`;
-  root.userData.design = "cohesive-combat-robot-v5";
+  root.userData.design = "cohesive-combat-robot-v6";
   root.position.set(
     player.position.x,
     player.position.y - FIGHTER_FLOOR_OFFSET,
@@ -507,28 +498,22 @@ export const createRemoteFighter = (
   const primaryShell = new THREE.Mesh(
     merged(
       transformed(
-        new THREE.CylinderGeometry(0.405, 0.34, 0.56, 12),
-        [0, 1.39, 0],
-        [0, 0, 0],
-        [1, 1, 0.66],
-      ),
-      transformed(
-        new THREE.CylinderGeometry(0.34, 0.26, 0.38, 12),
-        [0, 1.01, 0.004],
-        [0, 0, 0],
-        [1, 1, 0.64],
-      ),
-      transformed(
-        new THREE.CylinderGeometry(0.12, 0.105, 0.16, 12),
-        [-SHOULDER_X, SHOULDER_Y, -0.002],
-        [0, 0, -Math.PI / 2],
-        [1, 1, 0.82],
-      ),
-      transformed(
-        new THREE.CylinderGeometry(0.12, 0.105, 0.16, 12),
-        [SHOULDER_X, SHOULDER_Y, -0.002],
+        new THREE.CapsuleGeometry(0.135, 0.58, 8, 20),
+        [0, 1.48, 0],
         [0, 0, Math.PI / 2],
-        [1, 1, 0.82],
+        [1, 1, 0.62],
+      ),
+      transformed(
+        new THREE.CylinderGeometry(0.37, 0.34, 0.42, 20),
+        [0, 1.38, 0],
+        [0, 0, 0],
+        [1, 1, 0.58],
+      ),
+      transformed(
+        new THREE.CylinderGeometry(0.34, 0.255, 0.4, 20),
+        [0, 1.02, 0.004],
+        [0, 0, 0],
+        [1, 1, 0.56],
       ),
     ),
     primary,
@@ -539,34 +524,28 @@ export const createRemoteFighter = (
   const suitCore = new THREE.Mesh(
     merged(
       transformed(
-        new THREE.CylinderGeometry(0.25, 0.28, 0.22, 12),
-        [0, 0.86, 0.012],
+        new THREE.CylinderGeometry(0.245, 0.27, 0.24, 18),
+        [0, 0.82, 0.012],
         [0, 0, 0],
-        [1, 1, 0.72],
+        [1, 1, 0.6],
       ),
       transformed(
-        new THREE.CylinderGeometry(0.13, 0.115, 0.12, 14),
+        new THREE.CylinderGeometry(0.115, 0.13, 0.16, 18),
         [0, 1.7, 0.015],
         [0, 0, 0],
-        [1, 1, 0.82],
+        [1, 1, 0.74],
       ),
       transformed(
-        new THREE.CylinderGeometry(0.106, 0.106, 0.14, 12),
-        [-SHOULDER_X, SHOULDER_Y, 0],
-        [0, 0, -Math.PI / 2],
-        [1, 1, 0.86],
-      ),
-      transformed(
-        new THREE.CylinderGeometry(0.106, 0.106, 0.14, 12),
-        [SHOULDER_X, SHOULDER_Y, 0],
+        new THREE.CapsuleGeometry(0.095, 0.63, 8, 18),
+        [0, SHOULDER_Y, 0.002],
         [0, 0, Math.PI / 2],
-        [1, 1, 0.86],
+        [1, 1, 0.65],
       ),
       transformed(
-        new THREE.CapsuleGeometry(0.105, 0.39, 8, 18),
-        [0, 1.42, -0.272],
+        new THREE.CapsuleGeometry(0.075, 0.32, 8, 18),
+        [0, 1.35, -0.205],
         [0, 0, Math.PI / 2],
-        [1, 0.9, 0.46],
+        [1, 1, 0.34],
       ),
     ),
     suit,
@@ -576,10 +555,10 @@ export const createRemoteFighter = (
 
   const helmetShell = new THREE.Mesh(
     transformed(
-      new THREE.SphereGeometry(1, 24, 18),
-      [0, 1.98, 0.015],
+      new THREE.CapsuleGeometry(0.235, 0.16, 10, 24),
+      [0, 1.96, 0.01],
       [0, 0, 0],
-      [0.292, 0.31, 0.245],
+      [1.12, 1, 0.9],
     ),
     primary,
   );
@@ -588,10 +567,10 @@ export const createRemoteFighter = (
 
   const faceplate = new THREE.Mesh(
     transformed(
-      new THREE.SphereGeometry(1, 22, 16),
-      [0, 1.965, -0.238],
-      [0, 0, 0],
-      [0.238, 0.205, 0.052],
+      new THREE.CapsuleGeometry(0.09, 0.24, 8, 22),
+      [0, 1.965, -0.2],
+      [0, 0, Math.PI / 2],
+      [1, 1, 0.34],
     ),
     suit,
   );
@@ -603,19 +582,19 @@ export const createRemoteFighter = (
     merged(
       transformed(
         new THREE.CapsuleGeometry(0.026, 0.2, 6, 14),
-        [-0.105, 1.39, -0.278],
+        [-0.105, 1.39, -0.226],
         [-0.03, 0, 0.68],
         [1, 1, 0.74],
       ),
       transformed(
         new THREE.CapsuleGeometry(0.026, 0.2, 6, 14),
-        [0.105, 1.39, -0.278],
+        [0.105, 1.39, -0.226],
         [-0.03, 0, -0.68],
         [1, 1, 0.74],
       ),
       transformed(
         new THREE.CylinderGeometry(0.047, 0.047, 0.025, 16),
-        [0, 1.28, -0.298],
+        [0, 1.28, -0.238],
         [Math.PI / 2, 0, 0],
         [1, 1, 0.72],
       ),
@@ -628,8 +607,8 @@ export const createRemoteFighter = (
 
   const visorFrame = new THREE.Mesh(
     transformed(
-      new THREE.CapsuleGeometry(0.062, 0.27, 8, 18),
-      [0, 1.99, -0.285],
+      new THREE.CapsuleGeometry(0.052, 0.25, 8, 20),
+      [0, 1.98, -0.229],
       [0, 0, Math.PI / 2],
     ),
     trim,
@@ -640,10 +619,10 @@ export const createRemoteFighter = (
 
   const visor = new THREE.Mesh(
     transformed(
-      new THREE.CapsuleGeometry(0.045, 0.275, 8, 18),
-      [0, 1.99, -0.333],
+      new THREE.CapsuleGeometry(0.032, 0.278, 8, 20),
+      [0, 1.98, -0.274],
       [0, 0, Math.PI / 2],
-      [1, 1, 0.78],
+      [1, 1, 0.72],
     ),
     visorMaterial,
   );

@@ -61,6 +61,16 @@ export function parseClientMessage(raw: string): ClientMessage | undefined {
       return typeof value.ready === "boolean"
         ? (value as ClientMessage)
         : undefined;
+    case "leave":
+    case "startMatch":
+    case "returnToLobby":
+      return Object.keys(value).length === 1
+        ? (value as ClientMessage)
+        : undefined;
+    case "rematchVote":
+      return typeof value.vote === "boolean"
+        ? (value as ClientMessage)
+        : undefined;
     case "chat":
       return typeof value.text === "string"
         ? (value as ClientMessage)

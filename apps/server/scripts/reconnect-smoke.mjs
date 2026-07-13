@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { websocketOptions } from "./ws-origin.mjs";
 
 const url = process.env.TEST_SERVER_URL ?? "ws://localhost:2567/ws";
 const roomCode = `R${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
@@ -24,7 +25,7 @@ function finish(error) {
     );
 }
 
-const first = new WebSocket(url);
+const first = new WebSocket(url, websocketOptions(url));
 first.on("open", () =>
   first.send(
     JSON.stringify({
@@ -70,7 +71,7 @@ first.on("message", (raw) => {
 first.on("error", finish);
 
 function connectAgain() {
-  const second = new WebSocket(url);
+  const second = new WebSocket(url, websocketOptions(url));
   second.on("open", () =>
     second.send(
       JSON.stringify({

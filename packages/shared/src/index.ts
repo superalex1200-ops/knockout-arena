@@ -131,6 +131,7 @@ export type PlayerSnapshot = {
   finisherRemainingMs?: number;
   ready: boolean;
   host: boolean;
+  connected?: boolean;
   team?: Team;
   bot?: boolean;
 };
@@ -140,6 +141,7 @@ export type ServerMessage =
       type: "welcome";
       playerId: string;
       roomCode: string;
+      roomMode: MatchMode;
       reconnectToken: string;
       lastProcessedInput: number;
     }
@@ -148,6 +150,8 @@ export type ServerMessage =
       code:
         | "ROOM_FULL"
         | "ROOM_NOT_FOUND"
+        | "ROOM_MODE_MISMATCH"
+        | "RECONNECT_EXPIRED"
         | "INVALID_CODE"
         | "MATCH_STARTED"
         | "VERSION_MISMATCH";
@@ -160,6 +164,8 @@ export type ServerMessage =
       matchStartedAt: number;
       phase: MatchPhase;
       phaseEndsAt: number;
+      roomMode: MatchMode;
+      rematchVotes: string[];
       trainingBotMode: TrainingBotMode;
       rules: MatchRules;
       players: PlayerSnapshot[];
@@ -212,6 +218,10 @@ export type ClientMessage =
       reconnectToken?: string;
     }
   | { type: "ready"; ready: boolean }
+  | { type: "leave" }
+  | { type: "startMatch" }
+  | { type: "rematchVote"; vote: boolean }
+  | { type: "returnToLobby" }
   | { type: "chat"; text: string }
   | { type: "ping"; clientTime: number }
   | { type: "setTrainingBotMode"; mode: TrainingBotMode }

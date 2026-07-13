@@ -38,6 +38,16 @@ const snapshot = (overrides: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
 const boundsFor = (object: THREE.Object3D): THREE.Box3 =>
   new THREE.Box3().setFromObject(object);
 
+const overlapVolume = (
+  first: THREE.Object3D,
+  second: THREE.Object3D,
+): number => {
+  const overlap = boundsFor(first).intersect(boundsFor(second));
+  if (overlap.isEmpty()) return 0;
+  const size = overlap.getSize(new THREE.Vector3());
+  return size.x * size.y * size.z;
+};
+
 const namedMesh = (root: THREE.Object3D, name: string): THREE.Mesh => {
   const object = root.getObjectByName(name);
   expect(object, `${name} should exist`).toBeInstanceOf(THREE.Mesh);
@@ -62,7 +72,7 @@ describe("CharacterModel", () => {
     expect(namedMesh(visual.root, "visor")).toBeDefined();
     expect(namedMesh(visual.root, "chest-chevron")).toBeDefined();
     expect(meshes.length).toBe(23);
-    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v5");
+    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v6");
     expect(meshes.some((mesh) => mesh.name.includes("knuckle"))).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry.type === "BoxGeometry")).toBe(
       false,
@@ -86,8 +96,21 @@ describe("CharacterModel", () => {
     const torsoSize = boundsFor(
       namedMesh(visual.root, "primary-shell"),
     ).getSize(new THREE.Vector3());
-    expect(torsoSize.y).toBeLessThan(0.92);
-    expect(torsoSize.x / torsoSize.z).toBeGreaterThan(1.65);
+    const helmetSize = boundsFor(
+      namedMesh(visual.root, "helmet-shell"),
+    ).getSize(new THREE.Vector3());
+    const gloveSize = boundsFor(
+      namedMesh(visual.leftGlove, "glove-shell-left"),
+    ).getSize(new THREE.Vector3());
+    expect(torsoSize.y).toBeGreaterThan(0.7);
+    expect(torsoSize.y).toBeLessThan(0.86);
+    expect(torsoSize.x / torsoSize.z).toBeGreaterThan(1.8);
+    expect(torsoSize.x / torsoSize.z).toBeLessThan(2.2);
+    expect(helmetSize.x / torsoSize.x).toBeGreaterThan(0.52);
+    expect(helmetSize.x / torsoSize.x).toBeLessThan(0.7);
+    expect(helmetSize.z / helmetSize.x).toBeLessThan(0.9);
+    expect(gloveSize.x / torsoSize.x).toBeLessThan(0.42);
+    expect(gloveSize.z / gloveSize.x).toBeGreaterThan(1.45);
     for (const jointName of ["elbow-left", "elbow-right"]) {
       const jointSize = boundsFor(namedMesh(visual.root, jointName)).getSize(
         new THREE.Vector3(),
@@ -133,9 +156,13 @@ describe("CharacterModel", () => {
       [visual.rightArm, visual.rightGlove, "glove-shell-right"],
     ] as const) {
       expect(boundsFor(torso).containsPoint(arm.shoulder)).toBe(true);
-      expect(
-        boundsFor(namedMesh(glove, shellName)).containsPoint(arm.wrist),
-      ).toBe(true);
+      const shell = namedMesh(glove, shellName);
+      const cuff = namedMesh(
+        glove,
+        arm.side < 0 ? "glove-cuff-left" : "glove-cuff-right",
+      );
+      expect(boundsFor(cuff).containsPoint(arm.wrist)).toBe(true);
+      expect(overlapVolume(shell, cuff)).toBeGreaterThan(0.00005);
     }
   });
 
@@ -166,6 +193,7 @@ describe("CharacterModel", () => {
     for (const applyPose of poses) {
       applyPose();
       poseFighterArms(visual);
+      visual.root.updateMatrixWorld(true);
       expect(fighterArmConnectionError(visual.leftArm)).toBeLessThan(1e-8);
       expect(fighterArmConnectionError(visual.rightArm)).toBeLessThan(1e-8);
       expect(visual.leftArm.upper.material).toBe(
@@ -180,6 +208,22 @@ describe("CharacterModel", () => {
       expect(
         visual.rightArm.elbow.position.toArray().every(Number.isFinite),
       ).toBe(true);
+      for (const [arm, glove, cuffName] of [
+        [visual.leftArm, visual.leftGlove, "glove-cuff-left"],
+        [visual.rightArm, visual.rightGlove, "glove-cuff-right"],
+      ] as const) {
+        expect(
+          overlapVolume(
+            visual.root.getObjectByName("primary-shell")!,
+            arm.upper,
+          ),
+        ).toBeGreaterThan(0.0001);
+        expect(overlapVolume(arm.upper, arm.elbow)).toBeGreaterThan(0.0001);
+        expect(overlapVolume(arm.elbow, arm.forearm)).toBeGreaterThan(0.0001);
+        expect(
+          overlapVolume(arm.forearm, namedMesh(glove, cuffName)),
+        ).toBeGreaterThan(0.00005);
+      }
     }
   });
 
@@ -208,23 +252,26 @@ describe("CharacterModel", () => {
         const sleeve = namedMesh(fist, "fp-sleeve");
         const forearmArmor = namedMesh(fist, "fp-forearm-armor");
         expect(fist.children).toHaveLength(4);
-        expect(fist.userData.design).toBe("combat-robot-glove-v5");
+        expect(fist.userData.design).toBe("combat-robot-glove-v6");
         expect(
           fist.children.some((child) => child.name.includes("knuckle")),
         ).toBe(false);
-        expect(boundsFor(shell).intersectsBox(boundsFor(cuff))).toBe(true);
-        expect(boundsFor(cuff).intersectsBox(boundsFor(sleeve))).toBe(true);
-        expect(boundsFor(sleeve).intersectsBox(boundsFor(forearmArmor))).toBe(
-          true,
-        );
+        expect(overlapVolume(shell, cuff)).toBeGreaterThan(0.00005);
+        expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.00005);
+        expect(overlapVolume(sleeve, forearmArmor)).toBeGreaterThan(0.00001);
         expect(bounds.max.z).toBeLessThan(-0.72);
-        expect(size.x).toBeLessThan(0.45);
-        expect(size.y).toBeLessThan(0.66);
+        expect(size.x).toBeLessThan(0.36);
+        expect(size.y).toBeLessThan(0.6);
         shell.geometry.computeBoundingBox();
         const localShellSize = shell.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
-        expect(localShellSize.x / localShellSize.y).toBeGreaterThan(1.12);
+        expect(localShellSize.z / localShellSize.x).toBeGreaterThan(1.55);
+        sleeve.geometry.computeBoundingBox();
+        const localSleeveSize = sleeve.geometry.boundingBox!.getSize(
+          new THREE.Vector3(),
+        );
+        expect(localSleeveSize.z / localSleeveSize.x).toBeGreaterThan(1.7);
       }
       expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.015);
       expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.015);

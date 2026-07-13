@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import WebSocket from "ws";
+import { websocketOptions } from "./ws-origin.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
 const port = 31_000 + Math.floor(Math.random() * 2_000);
@@ -10,8 +11,11 @@ const server = spawn(process.execPath, ["apps/server/dist/index.js"], {
   cwd: root,
   env: {
     ...process.env,
+    NODE_ENV: "production",
     PORT: String(port),
     CLIENT_DIST: resolve(root, "apps/client/dist"),
+    CLIENT_ORIGIN: origin,
+    TRUST_PROXY: "false",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -36,7 +40,8 @@ async function waitForHealth() {
 
 async function verifyWebSocket() {
   await new Promise((resolveSocket, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const socketUrl = `ws://127.0.0.1:${port}/ws`;
+    const socket = new WebSocket(socketUrl, websocketOptions(socketUrl));
     const timeout = setTimeout(
       () => reject(new Error("Same-origin WebSocket timed out")),
       8_000,
@@ -69,9 +74,67 @@ async function verifyWebSocket() {
   });
 }
 
+async function verifyWrongOriginRejected() {
+  await new Promise((resolveSocket, reject) => {
+    const socketUrl = `ws://127.0.0.1:${port}/ws`;
+    const socket = new WebSocket(
+      socketUrl,
+      websocketOptions(socketUrl, "https://cross-origin.invalid"),
+    );
+    const timeout = setTimeout(
+      () => reject(new Error("Cross-origin WebSocket was not rejected")),
+      3_000,
+    );
+    socket.on("open", () => {
+      clearTimeout(timeout);
+      socket.close();
+      reject(new Error("Cross-origin WebSocket unexpectedly opened"));
+    });
+    socket.on("unexpected-response", (_request, response) => {
+      try {
+        assert.equal(response.statusCode, 403);
+        clearTimeout(timeout);
+        response.resume();
+        resolveSocket();
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
+
+async function verifyMessageRateLimit() {
+  await new Promise((resolveSocket, reject) => {
+    const socketUrl = `ws://127.0.0.1:${port}/ws`;
+    const socket = new WebSocket(socketUrl, websocketOptions(socketUrl));
+    const timeout = setTimeout(
+      () => reject(new Error("Message-rate limiter did not close the socket")),
+      4_000,
+    );
+    socket.on("open", () => {
+      for (let index = 0; index < 220; index++) socket.send("null");
+    });
+    socket.on("close", (code) => {
+      try {
+        assert.equal(code, 1008);
+        clearTimeout(timeout);
+        resolveSocket();
+      } catch (error) {
+        reject(error);
+      }
+    });
+    socket.on("error", reject);
+  });
+}
+
 async function verifyJoinError(payload, expectedCode) {
   await new Promise((resolveSocket, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const socketUrl = `ws://127.0.0.1:${port}/ws`;
+    const socket = new WebSocket(socketUrl, websocketOptions(socketUrl));
     const timeout = setTimeout(
       () => reject(new Error(`Expected join error ${expectedCode}`)),
       3_000,
@@ -95,7 +158,8 @@ async function verifyJoinError(payload, expectedCode) {
 
 async function verifyDefenseExploitIsClosed() {
   await new Promise((resolveSocket, reject) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const socketUrl = `ws://127.0.0.1:${port}/ws`;
+    const socket = new WebSocket(socketUrl, websocketOptions(socketUrl));
     const roomCode = `D${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     let playerId = "";
     let stage = 0;
@@ -208,6 +272,7 @@ try {
   );
   const inviteResponse = await fetch(`${origin}/invite/ABC123`);
   assert.equal(inviteResponse.status, 200, "SPA fallback route failed");
+  await verifyWrongOriginRejected();
   await verifyWebSocket();
   await verifyJoinError(
     {
@@ -231,6 +296,7 @@ try {
     "ROOM_NOT_FOUND",
   );
   await verifyDefenseExploitIsClosed();
+  await verifyMessageRateLimit();
   console.log(`Production smoke passed on one HTTP/WebSocket origin (${port})`);
 } finally {
   server.kill("SIGTERM");

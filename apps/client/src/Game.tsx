@@ -16,6 +16,11 @@ import type { MatchHistoryEntry } from "./profile";
 import { SettingsPanel } from "./SettingsPanel";
 import { formatKey } from "./settings";
 import { EMPTY_COMBAT_HUD, type CombatHudState } from "./game/combatHud";
+import {
+  clearGameSession,
+  loadReconnectToken,
+  saveGameSession,
+} from "./gameSession";
 
 type Props = {
   name: string;
@@ -40,8 +45,10 @@ export function Game({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [connected, setConnected] = useState(false);
+  const [joined, setJoined] = useState(false);
   const [joinError, setJoinError] = useState<string>();
-  const [room, setRoom] = useState(roomCode);
+  const [room, setRoom] = useState(createRoom ? "" : roomCode);
+  const [effectiveMode, setEffectiveMode] = useState<MatchMode>(mode);
   const [me, setMe] = useState<PlayerSnapshot>();
   const [notice, setNotice] = useState("VERBINDUNG WIRD HERGESTELLT …");
   const [phase, setPhase] = useState<MatchPhase>(
@@ -51,10 +58,12 @@ export function Game({
   const [now, setNow] = useState(() => Date.now());
   const [players, setPlayers] = useState<PlayerSnapshot[]>([]);
   const socketRef = useRef<GameSocket | undefined>(undefined);
-  const reconnectTokenRef = useRef("");
+  const reconnectTokenRef = useRef(loadReconnectToken(mode, roomCode));
   const playerIdRef = useRef("");
+  const roomCodeRef = useRef(roomCode);
   const recordedMatchRef = useRef("");
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"code" | "invite" | null>(null);
+  const [rematchVotes, setRematchVotes] = useState<string[]>([]);
   const [chatDraft, setChatDraft] = useState("");
   const [matchChatOpen, setMatchChatOpen] = useState(false);
   const [scoreboardOpen, setScoreboardOpen] = useState(false);
@@ -67,7 +76,7 @@ export function Game({
     () => new Set(),
   );
   const [trainingBotMode, setTrainingBotMode] =
-    useState<TrainingBotMode>("aggressive");
+    useState<TrainingBotMode>("static");
   const [rules, setRules] = useState<MatchRules>({ ...DEFAULT_MATCH_RULES });
   const [spectatorTargetId, setSpectatorTargetId] = useState("");
   const [paused, setPaused] = useState(false);
@@ -81,6 +90,7 @@ export function Game({
   const playersRef = useRef(new Map<string, PlayerSnapshot>());
   const feedIdRef = useRef(0);
   const rendererRef = useRef<ArenaRenderer | null>(null);
+  const initialSettingsRef = useRef(settings);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -91,18 +101,38 @@ export function Game({
       socket,
       (message: ServerMessage, local?: PlayerSnapshot) => {
         if (message.type === "welcome") {
+          setJoined(true);
           setJoinError(undefined);
           setRoom(message.roomCode);
+          setEffectiveMode(message.roomMode);
+          roomCodeRef.current = message.roomCode;
           reconnectTokenRef.current = message.reconnectToken;
           playerIdRef.current = message.playerId;
+          saveGameSession(
+            message.roomMode,
+            message.roomCode,
+            message.reconnectToken,
+          );
+          const nextUrl = new URL(location.href);
+          if (message.roomMode === "private")
+            nextUrl.searchParams.set("room", message.roomCode);
+          else nextUrl.searchParams.delete("room");
+          history.replaceState(null, "", nextUrl);
         }
         if (message.type === "joinError") {
           setJoinError(message.message);
           setNotice("BEITRITT FEHLGESCHLAGEN");
+          clearGameSession();
+          const nextUrl = new URL(location.href);
+          nextUrl.searchParams.delete("room");
+          history.replaceState(null, "", nextUrl);
+          socket.close();
         }
         if (message.type === "snapshot") {
           setPhase(message.phase);
           setPhaseEndsAt(message.phaseEndsAt);
+          setEffectiveMode(message.roomMode);
+          setRematchVotes(message.rematchVotes);
           setPlayers(message.players);
           playersRef.current = new Map(
             message.players.map((player) => [player.id, player]),
@@ -124,8 +154,8 @@ export function Game({
               onMatchComplete({
                 matchId: message.matchId,
                 playedAt: new Date(message.serverTime).toISOString(),
-                mode,
-                roomCode,
+                mode: message.roomMode,
+                roomCode: roomCodeRef.current,
                 durationSeconds: Math.max(
                   0,
                   Math.round(
@@ -209,7 +239,7 @@ export function Game({
         }
         if (local) setMe({ ...local });
       },
-      settings,
+      initialSettingsRef.current,
       (action) =>
         setTutorialDone((current) =>
           current.has(action) ? current : new Set(current).add(action),
@@ -229,6 +259,7 @@ export function Game({
       (message) => renderer.onMessage(message),
       (online) => {
         setConnected(online);
+        if (!online) setJoined(false);
         if (online)
           socket.send({
             type: "join",
@@ -252,13 +283,33 @@ export function Game({
       renderer.dispose();
       socket.close();
     };
-  }, [createRoom, mode, name, onMatchComplete, roomCode, settings]);
+  }, [createRoom, mode, name, onMatchComplete, roomCode]);
 
-  const copyInvite = async () => {
-    const invite = `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`;
-    await navigator.clipboard.writeText(invite);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_600);
+  useEffect(() => {
+    rendererRef.current?.applySettings(settings);
+  }, [settings]);
+
+  const copyText = async (text: string, kind: "code" | "invite") => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(kind);
+      window.setTimeout(() => setCopied(null), 1_600);
+    } catch {
+      setNotice("KOPIEREN NICHT MÖGLICH");
+    }
+  };
+  const copyInvite = () =>
+    copyText(
+      `${location.origin}${location.pathname}?room=${encodeURIComponent(room)}`,
+      "invite",
+    );
+  const leaveGame = () => {
+    clearGameSession();
+    const nextUrl = new URL(location.href);
+    nextUrl.searchParams.delete("room");
+    history.replaceState(null, "", nextUrl);
+    socketRef.current?.send({ type: "leave" });
+    onExit();
   };
   const sendChat = () => {
     const text = chatDraft.trim();
@@ -307,8 +358,17 @@ export function Game({
 
   const remainingSeconds = Math.max(0, Math.ceil((phaseEndsAt - now) / 1000));
   const clock = `${Math.floor(remainingSeconds / 60)}:${String(remainingSeconds % 60).padStart(2, "0")}`;
-  const stockBattle = mode === "private" && rules.gameMode === "stock";
-  const teamBattle = mode === "private" && rules.gameMode === "team";
+  const humanPlayers = players.filter((player) => !player.bot);
+  const connectedHumanPlayers = humanPlayers.filter(
+    (player) => player.connected !== false,
+  );
+  const privateCanStart =
+    humanPlayers.length >= 2 &&
+    connectedHumanPlayers.length === humanPlayers.length &&
+    humanPlayers.every((player) => player.ready);
+  const votedForRematch = Boolean(me && rematchVotes.includes(me.id));
+  const stockBattle = effectiveMode === "private" && rules.gameMode === "stock";
+  const teamBattle = effectiveMode === "private" && rules.gameMode === "team";
   const teamScores = {
     red: players
       .filter((player) => player.team === "red")
@@ -319,19 +379,19 @@ export function Game({
   };
 
   return (
-    <main className={`game-shell mode-${mode}`}>
+    <main className={`game-shell mode-${effectiveMode}`}>
       <div ref={hostRef} className="viewport" />
       <div className="topbar">
         <span className={connected ? "online" : "offline"}>
-          {connected ? "● ONLINE" : "● OFFLINE"}
+          {!connected ? "● OFFLINE" : joined ? "● ONLINE" : "● VERBINDEN …"}
         </span>
-        <span>ARENA {room}</span>
+        <span>ARENA {room || "—"}</span>
         <span
           className={`network ${ping === null ? "" : ping < 80 ? "good" : ping < 160 ? "medium" : "bad"}`}
         >
           {ping ?? "—"} MS
         </span>
-        <button onClick={onExit}>VERLASSEN</button>
+        <button onClick={leaveGame}>VERLASSEN</button>
       </div>
       <div className="notice">{notice}</div>
       <div
@@ -379,7 +439,7 @@ export function Game({
         )}
       </div>
       <div className="match-clock">
-        {mode === "training"
+        {effectiveMode === "training"
           ? "TRAINING"
           : phase === "playing"
             ? clock
@@ -525,16 +585,32 @@ export function Game({
           </section>
         </div>
       )}
-      {phase === "lobby" && (
+      {!joined && !joinError && (
+        <div className="phase-overlay connection-overlay" role="status">
+          <section>
+            <p>ARENA-NETZWERK</p>
+            <h2>{connected ? "RAUM WIRD GELADEN" : "VERBINDUNG …"}</h2>
+            <small>
+              Dein Spielerzustand wird sicher mit dem Server synchronisiert.
+            </small>
+          </section>
+        </div>
+      )}
+      {joined && phase === "lobby" && (
         <div className="phase-overlay">
           <section className="lobby-panel">
-            <p>{mode === "quick" ? "SPIELERSUCHE" : "PRIVATE LOBBY"}</p>
+            <p>
+              {effectiveMode === "quick" ? "SPIELERSUCHE" : "PRIVATE LOBBY"}
+            </p>
             <h2>{room}</h2>
             <div className="roster">
               {players
                 .filter((p) => !p.bot)
                 .map((p) => (
-                  <span key={p.id}>
+                  <span
+                    className={p.connected === false ? "disconnected" : ""}
+                    key={p.id}
+                  >
                     {p.host && <i>HOST</i>}
                     {teamBattle && p.team && (
                       <em className={`team ${p.team}`}>
@@ -542,18 +618,24 @@ export function Game({
                       </em>
                     )}
                     {p.name}
-                    <b>{p.ready ? "BEREIT" : "WARTET"}</b>
+                    <b>
+                      {p.connected === false
+                        ? "GETRENNT"
+                        : p.ready
+                          ? "BEREIT"
+                          : "WARTET"}
+                    </b>
                   </span>
                 ))}
             </div>
-            {mode === "private" && (
+            {effectiveMode === "private" && (
               <PrivateRules
                 rules={rules}
                 host={!!me?.host}
                 update={updateRules}
               />
             )}
-            {mode === "private" && (
+            {effectiveMode === "private" && (
               <div className="chat-log">
                 {chat.length === 0 ? (
                   <small>Noch keine Nachrichten</small>
@@ -567,7 +649,7 @@ export function Game({
                 )}
               </div>
             )}
-            {mode === "private" && (
+            {effectiveMode === "private" && (
               <form
                 className="chat-form"
                 onSubmit={(event) => {
@@ -585,30 +667,54 @@ export function Game({
                 <button type="submit">SENDEN</button>
               </form>
             )}
-            {mode === "private" && (
-              <button
-                className={me?.ready ? "ready active" : "ready"}
-                onClick={() =>
-                  socketRef.current?.send({ type: "ready", ready: !me?.ready })
-                }
-              >
-                {me?.ready ? "NICHT BEREIT" : "BEREIT"}
-              </button>
-            )}
-            {mode === "private" && (
-              <button className="invite" onClick={() => void copyInvite()}>
-                {copied ? "LINK KOPIERT" : "EINLADUNGSLINK KOPIEREN"}
-              </button>
+            {effectiveMode === "private" && (
+              <div className="lobby-actions">
+                <button
+                  className={me?.ready ? "ready active" : "ready"}
+                  onClick={() =>
+                    socketRef.current?.send({
+                      type: "ready",
+                      ready: !me?.ready,
+                    })
+                  }
+                >
+                  {me?.ready ? "NICHT BEREIT" : "BEREIT"}
+                </button>
+                {me?.host && (
+                  <button
+                    className="ready"
+                    disabled={!privateCanStart}
+                    onClick={() =>
+                      socketRef.current?.send({ type: "startMatch" })
+                    }
+                  >
+                    MATCH STARTEN
+                  </button>
+                )}
+                <button
+                  className="invite"
+                  onClick={() => void copyText(room, "code")}
+                >
+                  {copied === "code" ? "CODE KOPIERT" : "LOBBYCODE KOPIEREN"}
+                </button>
+                <button className="invite" onClick={() => void copyInvite()}>
+                  {copied === "invite"
+                    ? "LINK KOPIERT"
+                    : "EINLADUNGSLINK KOPIEREN"}
+                </button>
+              </div>
             )}
             <small>
-              {mode === "quick"
+              {effectiveMode === "quick"
                 ? "Warte auf einen Gegner – du kannst jederzeit verlassen."
-                : "Stock Battle startet, sobald mindestens zwei Spieler bereit sind."}
+                : me?.host
+                  ? "Alle Spieler müssen bereit sein, danach startest du das Match."
+                  : "Bereit machen und auf den Host-Start warten."}
             </small>
           </section>
         </div>
       )}
-      {phase === "countdown" && (
+      {joined && phase === "countdown" && (
         <div className="countdown">{Math.max(1, remainingSeconds)}</div>
       )}
       {me?.eliminated && phase === "playing" && (
@@ -628,7 +734,7 @@ export function Game({
           )}
         </div>
       )}
-      {phase === "results" && (
+      {joined && phase === "results" && (
         <div className="phase-overlay">
           <section>
             <p>MATCH BEENDET</p>
@@ -669,14 +775,45 @@ export function Game({
                   </span>
                 ))}
             </div>
-            <small>Rückkehr zur Lobby in wenigen Sekunden …</small>
-            <button className="invite" onClick={onExit}>
-              ZUM HAUPTMENÜ
-            </button>
+            <small>
+              {effectiveMode === "private"
+                ? `Automatische Rückkehr zur Lobby in ${remainingSeconds}s.`
+                : `Nächstes Match in ${remainingSeconds}s.`}
+            </small>
+            <div className="result-actions">
+              <button
+                className={votedForRematch ? "ready active" : "ready"}
+                onClick={() =>
+                  socketRef.current?.send({
+                    type: "rematchVote",
+                    vote: !votedForRematch,
+                  })
+                }
+              >
+                {votedForRematch ? "REMATCH ABWÄHLEN" : "REMATCH"} ·{" "}
+                {rematchVotes.length}/{humanPlayers.length}
+                {connectedHumanPlayers.length < humanPlayers.length
+                  ? ` · ${humanPlayers.length - connectedHumanPlayers.length} GETRENNT`
+                  : ""}
+              </button>
+              {effectiveMode === "private" && me?.host && (
+                <button
+                  className="invite"
+                  onClick={() =>
+                    socketRef.current?.send({ type: "returnToLobby" })
+                  }
+                >
+                  ZUR LOBBY
+                </button>
+              )}
+              <button className="invite" onClick={leaveGame}>
+                ZUM HAUPTMENÜ
+              </button>
+            </div>
           </section>
         </div>
       )}
-      {mode === "training" && (
+      {effectiveMode === "training" && (
         <TutorialPanel
           done={tutorialDone}
           botMode={trainingBotMode}
@@ -697,7 +834,7 @@ export function Game({
             <button className="invite" onClick={() => setPauseSettings(true)}>
               EINSTELLUNGEN
             </button>
-            <button className="danger" onClick={onExit}>
+            <button className="danger" onClick={leaveGame}>
               MATCH VERLASSEN
             </button>
             <small>Das Online-Match läuft während der Pause weiter.</small>

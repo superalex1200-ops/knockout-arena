@@ -32,6 +32,10 @@ pnpm start
 
 Der Node-Prozess liefert danach sowohl die gebaute Spielseite als auch `/ws` und `/health` über den in `PORT` gesetzten Anschluss aus.
 
+### WebSocket-Sicherheit
+
+Browser-Upgrades werden in Produktion nur von derselben Origin oder einer in `CLIENT_ORIGIN` (kommagetrennt, exakte Origins) beziehungsweise `PUBLIC_BASE_URL` eingetragenen Origin akzeptiert. `TRUST_PROXY=true` darf nur hinter einem kontrollierten Reverse Proxy gesetzt werden; Render aktiviert dies über `render.yaml`, damit ausschließlich dort `X-Forwarded-For` für IP-Limits verwendet wird. Standardgrenzen sind 12 gleichzeitige Verbindungen pro IP, 2.000 insgesamt und 8 Sekunden bis zur Join-Nachricht. Sie lassen sich mit `MAX_CONNECTIONS_PER_IP`, `MAX_CONNECTIONS_TOTAL` und `WS_JOIN_TIMEOUT_MS` innerhalb sicherer Grenzen anpassen. Origin-lose Testclients sind im Development erlaubt; `ALLOW_MISSING_WS_ORIGIN=true` ist ein expliziter Kompatibilitäts-Override und soll nicht in Produktion gesetzt werden.
+
 ## Container
 
 ```bash

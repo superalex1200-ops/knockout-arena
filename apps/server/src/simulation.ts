@@ -61,6 +61,10 @@ const spawnPoints: Vec3[] = [
   { x: 7, y: 1.1, z: 7 },
   { x: 7, y: 1.1, z: -7 },
   { x: -7, y: 1.1, z: 7 },
+  { x: 0, y: 1.1, z: -9 },
+  { x: 9, y: 1.1, z: 0 },
+  { x: 0, y: 1.1, z: 9 },
+  { x: -9, y: 1.1, z: 0 },
 ];
 
 export function createPlayer(

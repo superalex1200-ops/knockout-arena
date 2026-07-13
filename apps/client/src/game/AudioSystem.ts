@@ -1,6 +1,14 @@
 export class AudioSystem {
   private context?: AudioContext;
-  constructor(private volume = 0.75) {}
+  private volume: number;
+
+  constructor(volume = 0.75) {
+    this.volume = Math.max(0, Math.min(1, volume));
+  }
+
+  setVolume(volume: number): void {
+    this.volume = Math.max(0, Math.min(1, volume));
+  }
 
   private getContext(): AudioContext | undefined {
     if (typeof AudioContext === "undefined") return undefined;

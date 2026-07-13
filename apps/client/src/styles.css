@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;900&family=Inter:wght@400;600;800&display=swap");
 .ambient {
   position: absolute;
   inset: 0;
@@ -28,7 +27,7 @@
   font-weight: 800;
 }
 .phase-overlay h2 {
-  font: 900 3.3rem "Barlow Condensed";
+  font: 900 3.3rem var(--font-display);
   letter-spacing: 0.08em;
   margin: 4px 0 20px;
 }
@@ -57,6 +56,13 @@
   color: #ff4778;
   font-style: normal;
 }
+.roster span.disconnected {
+  opacity: 0.58;
+  border-left: 2px solid #ff9e5e;
+}
+.roster span.disconnected b {
+  color: #ffad72;
+}
 .phase-overlay .ready {
   border: 0;
   background: linear-gradient(90deg, #ff376e, #d52e87);
@@ -71,6 +77,11 @@
   background: #26304d;
   color: #aab5d2;
 }
+.phase-overlay button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  filter: saturate(0.45);
+}
 .phase-overlay small {
   display: block;
   color: #818ba8;
@@ -83,13 +94,16 @@
   place-items: center;
   z-index: 9;
   pointer-events: none;
-  font: 900 12rem "Barlow Condensed";
+  font: 900 12rem var(--font-display);
   color: white;
   text-shadow: 0 0 50px #ff376e;
   background: #080a1744;
 }
 .join-error {
   z-index: 30;
+}
+.connection-overlay {
+  z-index: 24;
 }
 .scoreboard-overlay {
   position: fixed;
@@ -214,6 +228,23 @@
   letter-spacing: 0.1em;
   cursor: pointer;
 }
+.lobby-actions,
+.result-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.lobby-actions .ready,
+.lobby-actions .invite,
+.result-actions .ready,
+.result-actions .invite {
+  min-height: 44px;
+  margin-top: 0;
+}
+.result-actions .ready:first-child {
+  grid-column: 1 / -1;
+}
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -237,7 +268,7 @@
   font-weight: 800;
 }
 .settings-overlay h2 {
-  font: 900 2.4rem "Barlow Condensed";
+  font: 900 2.4rem var(--font-display);
   margin: 4px 0 25px;
 }
 .settings-overlay label {
@@ -344,7 +375,7 @@
 .profile-stats b {
   display: block;
   color: #fff;
-  font: 900 2rem "Barlow Condensed";
+  font: 900 2rem var(--font-display);
 }
 .profile-overlay h3 {
   margin: 24px 0 8px;
@@ -372,7 +403,7 @@
   background: #090d1f;
 }
 .history > div > b {
-  font: 900 1.5rem "Barlow Condensed";
+  font: 900 1.5rem var(--font-display);
   color: #ff4778;
 }
 .history > div span {
@@ -425,7 +456,7 @@
 }
 .tutorial-panel h3 {
   margin: 5px 0 12px;
-  font: 900 1.25rem "Barlow Condensed";
+  font: 900 1.25rem var(--font-display);
 }
 .tutorial-panel > div {
   display: grid;
@@ -589,7 +620,10 @@
   background: radial-gradient(circle, transparent 35%, #ff245f66 100%);
 }
 :root {
-  font-family: Inter, system-ui, sans-serif;
+  --font-display:
+    "Bahnschrift Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --font-ui: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  font-family: var(--font-ui);
   color: #f6f8ff;
   background: #070916;
   font-synthesis: none;
@@ -640,7 +674,7 @@ input {
   color: #73eaff;
 }
 .brand h1 {
-  font: 900 clamp(4.8rem, 10vw, 9rem)/0.72 "Barlow Condensed";
+  font: 900 clamp(4.8rem, 10vw, 9rem) / 0.72 var(--font-display);
   letter-spacing: -0.045em;
   margin: 0.2em 0;
   text-shadow: 0 18px 60px #000;
@@ -811,7 +845,7 @@ input:focus {
   align-items: center;
   gap: 22px;
   background: linear-gradient(#060817cc, transparent);
-  font: 700 0.68rem "Inter";
+  font: 700 0.68rem var(--font-ui);
   letter-spacing: 0.16em;
   pointer-events: none;
 }
@@ -833,7 +867,7 @@ input:focus {
   top: 17%;
   left: 50%;
   transform: translateX(-50%);
-  font: 900 1.5rem "Barlow Condensed";
+  font: 900 1.5rem var(--font-display);
   letter-spacing: 0.16em;
   color: #fff;
   text-shadow: 0 2px 18px #ff3e76;
@@ -879,7 +913,7 @@ input:focus {
 }
 .hud-card strong {
   display: block;
-  font: 900 3rem "Barlow Condensed";
+  font: 900 3rem var(--font-display);
   line-height: 1;
 }
 .hud-card small {
@@ -914,7 +948,7 @@ input:focus {
 .score b {
   display: block;
   color: white;
-  font: 900 1.7rem "Barlow Condensed";
+  font: 900 1.7rem var(--font-display);
   text-align: center;
 }
 .controls,
@@ -1038,7 +1072,7 @@ input:focus {
   padding: 8px 16px;
   background: #090d1dcc;
   border-bottom: 2px solid #59eaff;
-  font: 900 1.25rem "Barlow Condensed";
+  font: 900 1.25rem var(--font-display);
   letter-spacing: 0.1em;
 }
 .spectator-bar {
@@ -1063,7 +1097,7 @@ input:focus {
   letter-spacing: 0.22em;
 }
 .spectator-bar strong {
-  font: 900 1.4rem "Barlow Condensed";
+  font: 900 1.4rem var(--font-display);
   margin: 3px;
 }
 .spectator-bar span {
@@ -1254,7 +1288,7 @@ input:focus {
   gap: 12px;
   padding: 7px 13px;
   background: #080c1ddd;
-  font: 900 0.72rem "Inter";
+  font: 900 0.72rem var(--font-ui);
   letter-spacing: 0.12em;
 }
 .team-score span {
@@ -1263,7 +1297,7 @@ input:focus {
   gap: 7px;
 }
 .team-score b {
-  font: 900 1.35rem "Barlow Condensed";
+  font: 900 1.35rem var(--font-display);
 }
 .team-score i {
   font-style: normal;
@@ -1289,10 +1323,10 @@ input:focus {
   gap: 18px;
   align-items: center;
   margin: 0 0 16px;
-  font: 900 1rem "Inter";
+  font: 900 1rem var(--font-ui);
 }
 .team-result b {
-  font: 900 2rem "Barlow Condensed";
+  font: 900 2rem var(--font-display);
 }
 .team-result i {
   font-style: normal;
