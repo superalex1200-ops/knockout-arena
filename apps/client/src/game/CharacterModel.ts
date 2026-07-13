@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import type { PlayerSnapshot } from "@knockout/shared";
 
@@ -19,7 +20,7 @@ type Palette = {
 type Appearance = {
   key: string;
   primary: THREE.MeshStandardMaterial;
-  trim: THREE.MeshStandardMaterial;
+  trim?: THREE.MeshStandardMaterial;
   visor?: THREE.MeshStandardMaterial;
 };
 
@@ -147,7 +148,7 @@ export const firstPersonGlovePose = ({
     return {
       position: new THREE.Vector3(side * 0.31, -0.27, -1.52),
       rotationX: -0.38,
-      rotationZ: side * 0.22,
+      rotationZ: side * 0.17,
     };
   if (charging)
     return {
@@ -177,56 +178,63 @@ const smoothGloveShell = (
   side: -1 | 1,
   firstPerson: boolean,
 ): THREE.BufferGeometry => {
-  const scale = firstPerson ? 0.96 : 1;
-  const width = 0.166 * scale;
-  const segments = firstPerson ? 28 : 24;
-  const rows = firstPerson ? 18 : 16;
-  const thumbRadius = 0.042 * scale;
+  const scale = firstPerson ? 0.95 : 1;
+  const thumbRadius = 0.043 * scale;
   return merged(
     transformed(
-      new THREE.SphereGeometry(1, segments, rows),
-      [0, 0.018, -0.078 * scale],
+      new RoundedBoxGeometry(
+        0.35 * scale,
+        0.25 * scale,
+        0.37 * scale,
+        firstPerson ? 8 : 6,
+        0.086 * scale,
+      ),
+      [0, 0.012, -0.012],
       [0, 0, 0],
-      [width, 0.122 * scale, 0.122 * scale],
+      [1, 1, 1],
     ),
     transformed(
-      new THREE.SphereGeometry(1, segments, rows),
-      [0, -0.028, 0.066 * scale],
-      [0, 0, 0],
-      [0.142 * scale, 0.116 * scale, 0.13 * scale],
-    ),
-    transformed(
-      new THREE.SphereGeometry(1, segments, rows),
-      [0, 0.012, -0.132 * scale],
-      [0, 0, 0],
-      [0.158 * scale, 0.105 * scale, 0.066 * scale],
-    ),
-    transformed(
-      new THREE.CapsuleGeometry(thumbRadius, 0.054 * scale, 8, 18),
-      [-side * 0.108 * scale, -0.054, 0.014],
-      [0.62, 0, side * 0.48],
-      [0.94, 1, 0.9],
+      new THREE.CapsuleGeometry(thumbRadius, 0.05 * scale, 8, 18),
+      [-side * 0.12 * scale, -0.052, 0.018],
+      [0.72, 0, side * 0.42],
+      [0.9, 1, 0.84],
     ),
   );
 };
 
 const smoothGloveCuff = (firstPerson: boolean): THREE.BufferGeometry => {
-  const radius = firstPerson ? 0.084 : 0.096;
+  const gloveRadius = firstPerson ? 0.105 : 0.115;
+  const wristRadius = firstPerson ? 0.085 : 0.092;
   const center = firstPerson ? 0.205 : 0.22;
   const length = firstPerson ? 0.105 : 0.12;
-  return merged(
-    transformed(
-      new THREE.CylinderGeometry(radius * 1.04, radius * 0.94, length, 24),
-      [0, 0, center],
-      [Math.PI / 2, 0, 0],
-      [1, 1, 0.9],
-    ),
-    transformed(
-      new THREE.TorusGeometry(radius * 1.01, firstPerson ? 0.008 : 0.01, 8, 24),
-      [0, 0, center - length * 0.42],
-      [0, 0, 0],
-      [1, 0.9, 1],
-    ),
+  return transformed(
+    new THREE.CylinderGeometry(wristRadius, gloveRadius, length, 32),
+    [0, 0, center],
+    [Math.PI / 2, 0, 0],
+    [1.08, 0.82, 0.9],
+  );
+};
+
+const smoothForearmSleeve = (side: -1 | 1): THREE.BufferGeometry => {
+  const height = 0.66;
+  const geometry = new RoundedBoxGeometry(0.19, height, 0.15, 6, 0.05);
+  const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
+  for (let index = 0; index < positions.count; index++) {
+    const alongArm = THREE.MathUtils.clamp(
+      (positions.getY(index) + height / 2) / height,
+      0,
+      1,
+    );
+    const taper = THREE.MathUtils.lerp(0.82, 1.12, alongArm);
+    positions.setX(index, positions.getX(index) * taper);
+    positions.setZ(index, positions.getZ(index) * taper);
+  }
+  positions.needsUpdate = true;
+  return transformed(
+    geometry,
+    [side * 0.02, -0.27, 0.34],
+    [2.55, 0, side * 0.025],
+    [1, 1, 0.94],
   );
 };
 
@@ -235,65 +243,30 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   group.name =
     side < 0 ? "first-person-glove-left" : "first-person-glove-right";
   group.userData.side = side;
-  group.userData.design = "combat-robot-glove-v7";
+  group.userData.design = "combat-robot-glove-v8";
 
   const primary = standardMaterial(0xf23d63, {
-    roughness: 0.5,
-    metalness: 0.05,
+    roughness: 0.58,
+    metalness: 0.03,
     emissive: 0x3d0712,
     emissiveIntensity: 0.16,
   });
-  const trim = standardMaterial(0xff91aa, {
-    roughness: 0.48,
-    metalness: 0.08,
-    emissive: 0x3d0712,
-    emissiveIntensity: 0.18,
-  });
   const sleeveMaterial = standardMaterial(0x202a42, {
-    roughness: 0.56,
-    metalness: 0.1,
+    roughness: 0.6,
+    metalness: 0.06,
   });
 
   const shell = new THREE.Mesh(smoothGloveShell(side, true), primary);
   shell.name = "fp-glove-shell";
   group.add(shell);
 
-  const cuff = new THREE.Mesh(smoothGloveCuff(true), trim);
+  const cuff = new THREE.Mesh(smoothGloveCuff(true), sleeveMaterial);
   cuff.name = "fp-cuff";
   group.add(cuff);
 
-  const sleeve = new THREE.Mesh(
-    merged(
-      transformed(
-        new THREE.CapsuleGeometry(0.078, 0.15, 8, 20),
-        [0, -0.035, 0.33],
-        [1.78, 0, side * 0.045],
-        [1.05, 0.96, 0.94],
-      ),
-      transformed(
-        new THREE.CapsuleGeometry(0.087, 0.15, 8, 20),
-        [side * 0.035, -0.18, 0.52],
-        [2.18, 0, side * 0.065],
-        [1.03, 1, 0.94],
-      ),
-    ),
-    sleeveMaterial,
-  );
+  const sleeve = new THREE.Mesh(smoothForearmSleeve(side), sleeveMaterial);
   sleeve.name = "fp-sleeve";
   group.add(sleeve);
-
-  const forearmArmor = new THREE.Mesh(
-    transformed(
-      new THREE.CapsuleGeometry(0.028, 0.11, 8, 16),
-      [0, 0.035, 0.34],
-      [1.78, 0, side * 0.045],
-      [1.45, 1, 0.62],
-    ),
-    primary,
-  );
-  forearmArmor.name = "fp-forearm-armor";
-  forearmArmor.castShadow = false;
-  group.add(forearmArmor);
 
   group.position.copy(
     firstPersonGlovePose({
@@ -309,7 +282,6 @@ export const createFirstPersonGlove = (side: -1 | 1): THREE.Group => {
   group.userData.appearance = {
     key: "",
     primary,
-    trim,
   } satisfies Appearance;
   return group;
 };
@@ -322,18 +294,17 @@ export const fighterRestHandPosition = (side: -1 | 1): THREE.Vector3 =>
 const makeGlove = (
   side: -1 | 1,
   primary: THREE.MeshStandardMaterial,
-  trim: THREE.MeshStandardMaterial,
 ): THREE.Group => {
   const glove = new THREE.Group();
   glove.name = side < 0 ? "glove-left" : "glove-right";
-  glove.userData.design = "combat-robot-glove-v7";
+  glove.userData.design = "combat-robot-glove-v8";
   glove.position.copy(fighterRestHandPosition(side));
 
   const shell = new THREE.Mesh(smoothGloveShell(side, false), primary);
   shell.name = side < 0 ? "glove-shell-left" : "glove-shell-right";
   glove.add(shell);
 
-  const cuff = new THREE.Mesh(smoothGloveCuff(false), trim);
+  const cuff = new THREE.Mesh(smoothGloveCuff(false), primary);
   cuff.name = side < 0 ? "glove-cuff-left" : "glove-cuff-right";
   cuff.castShadow = false;
   glove.add(cuff);
@@ -462,7 +433,7 @@ export const createRemoteFighter = (
 ): FighterVisual => {
   const root = new THREE.Group();
   root.name = `fighter-${player.id}`;
-  root.userData.design = "cohesive-combat-robot-v7";
+  root.userData.design = "cohesive-combat-robot-v8";
   root.position.set(
     player.position.x,
     player.position.y - FIGHTER_FLOOR_OFFSET,
@@ -472,8 +443,8 @@ export const createRemoteFighter = (
 
   const palette = paletteFor(player);
   const primary = standardMaterial(palette.primary, {
-    roughness: 0.38,
-    metalness: 0.16,
+    roughness: 0.48,
+    metalness: 0.08,
     emissive: palette.emissive,
     emissiveIntensity: 0.12,
   });
@@ -640,8 +611,8 @@ export const createRemoteFighter = (
     rightArm.elbow,
   );
 
-  const leftGlove = makeGlove(-1, primary, trim);
-  const rightGlove = makeGlove(1, primary, trim);
+  const leftGlove = makeGlove(-1, primary);
+  const rightGlove = makeGlove(1, primary);
   root.add(leftGlove, rightGlove);
 
   const leftLeg = makeLeg(-1, suit, primary);
@@ -711,8 +682,10 @@ const applyPalette = (appearance: Appearance, palette: Palette): void => {
   appearance.key = palette.key;
   appearance.primary.color.setHex(palette.primary);
   appearance.primary.emissive.setHex(palette.emissive);
-  appearance.trim.color.setHex(palette.trim);
-  appearance.trim.emissive.setHex(palette.emissive);
+  if (appearance.trim) {
+    appearance.trim.color.setHex(palette.trim);
+    appearance.trim.emissive.setHex(palette.emissive);
+  }
   if (appearance.visor) {
     appearance.visor.color.setHex(palette.visor);
     appearance.visor.emissive.setHex(palette.visor);

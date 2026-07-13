@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { PlayerSnapshot } from "@knockout/shared";
 import {
   createFirstPersonGlove,
@@ -72,11 +73,11 @@ describe("CharacterModel", () => {
     expect(namedMesh(visual.root, "visor")).toBeDefined();
     expect(namedMesh(visual.root, "chest-chevron")).toBeDefined();
     expect(meshes.length).toBe(23);
-    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v7");
+    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v8");
     expect(meshes.some((mesh) => mesh.name.includes("knuckle"))).toBe(false);
-    expect(meshes.some((mesh) => mesh.geometry.type === "BoxGeometry")).toBe(
-      false,
-    );
+    expect(
+      meshes.some((mesh) => mesh.geometry.constructor === THREE.BoxGeometry),
+    ).toBe(false);
     expect(visual.root.rotation.y).toBeCloseTo(0.75);
     visual.root.rotation.y = 0;
 
@@ -251,16 +252,21 @@ describe("CharacterModel", () => {
         const shell = namedMesh(fist, "fp-glove-shell");
         const cuff = namedMesh(fist, "fp-cuff");
         const sleeve = namedMesh(fist, "fp-sleeve");
-        const forearmArmor = namedMesh(fist, "fp-forearm-armor");
-        expect(fist.children).toHaveLength(4);
-        expect(fist.userData.design).toBe("combat-robot-glove-v7");
+        expect(fist.children.map((child) => child.name)).toEqual([
+          "fp-glove-shell",
+          "fp-cuff",
+          "fp-sleeve",
+        ]);
+        expect(fist.userData.design).toBe("combat-robot-glove-v8");
         expect(
           fist.children.some((child) => child.name.includes("knuckle")),
         ).toBe(false);
+        expect(fist.getObjectByName("fp-forearm-armor")).toBeUndefined();
         expect(overlapVolume(shell, cuff)).toBeGreaterThan(0.00005);
         expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.00005);
-        expect(overlapVolume(sleeve, forearmArmor)).toBeGreaterThan(0.00001);
-        expect(bounds.max.z).toBeLessThan(-0.72);
+        expect(bounds.max.z, `${state}:${side} camera clearance`).toBeLessThan(
+          -0.72,
+        );
         expect(size.x).toBeLessThan(0.44);
         expect(size.y).toBeLessThan(0.82);
         shell.geometry.computeBoundingBox();
@@ -277,11 +283,15 @@ describe("CharacterModel", () => {
         const localSleeveSize = sleeve.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
-        expect(localShellSize.x / localCuffSize.x).toBeGreaterThan(1.55);
+        expect(localShellSize.x / localCuffSize.x).toBeGreaterThan(1.4);
         expect(localShellSize.x / localSleeveSize.x).toBeGreaterThan(1.3);
-        expect(localSleeveSize.z / localSleeveSize.x).toBeLessThan(3.2);
-        expect(localSleeveSize.y / localSleeveSize.x).toBeGreaterThan(1.35);
-        expect(sleeve.geometry.type).not.toBe("CylinderGeometry");
+        expect(localSleeveSize.z / localSleeveSize.x).toBeLessThan(3.5);
+        expect(localSleeveSize.y / localSleeveSize.x).toBeGreaterThan(1.5);
+        expect(sleeve.geometry).toBeInstanceOf(RoundedBoxGeometry);
+        const sleeveShape = sleeve.geometry as RoundedBoxGeometry;
+        expect(sleeveShape.parameters.width).toBeCloseTo(0.19);
+        expect(sleeveShape.parameters.height).toBeCloseTo(0.66);
+        expect(sleeveShape.parameters.depth).toBeCloseTo(0.15);
       }
       expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.015);
       expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.015);
