@@ -8,8 +8,10 @@ export type CombatHudState = {
   dashReady: number;
   lightReady: number;
   heavyReady: number;
+  blockReady: number;
   heavyCharge: number;
   blocking: boolean;
+  blockNeedsRelease: boolean;
   parryActive: boolean;
   validTarget: boolean;
   dashEnabled: boolean;
@@ -21,8 +23,10 @@ export const EMPTY_COMBAT_HUD: CombatHudState = {
   dashReady: 1,
   lightReady: 1,
   heavyReady: 1,
+  blockReady: 1,
   heavyCharge: 0,
   blocking: false,
+  blockNeedsRelease: false,
   parryActive: false,
   validTarget: false,
   dashEnabled: true,

@@ -29,6 +29,7 @@ import {
   respawn,
   resolvePlayerCollisions,
   stepPlayer,
+  syncBlockInputState,
   TRAINING_BOT_ATTACK_INTERVAL_MS,
   trainingBotCanEngage,
   type SimPlayer,
@@ -932,6 +933,7 @@ wss.on("connection", (socket, request) => {
         blocking: room.rules.blockEnabled && !!msg.blocking && !msg.charging,
         charging: room.rules.heavyEnabled && !!msg.charging && !msg.blocking,
       };
+      syncBlockInputState(player, Date.now());
     } else if (
       msg.type === "attack" &&
       room.phase === "playing" &&
@@ -1233,6 +1235,7 @@ const snapshotTimer = setInterval(() => {
           protectionUntil: _p,
           blockStarted: _b,
           blockCooldownUntil: _bc,
+          blockNeedsRelease: _br,
           chargeStarted: _cs,
           lastWallHit: _w,
           airRecoveryAvailable: _ar,

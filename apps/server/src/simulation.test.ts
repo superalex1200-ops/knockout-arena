@@ -15,6 +15,7 @@ import {
   respawn,
   resolvePlayerCollisions,
   stepPlayer,
+  syncBlockInputState,
   TRAINING_BOT_ATTACK_INTERVAL_MS,
   TRAINING_BOT_COMBAT_SCALE,
   TRAINING_BOT_OPENING_GRACE_MS,
@@ -80,6 +81,20 @@ describe("authoritative combat simulation", () => {
     expect(player.charging).toBe(false);
   });
 
+  it("applies a block press immediately before the next physics step", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.charging = true;
+    player.chargeStarted = 800;
+    player.input.blocking = true;
+
+    syncBlockInputState(player, 1_000);
+
+    expect(player.blocking).toBe(true);
+    expect(player.blockStarted).toBe(1_000);
+    expect(player.charging).toBe(false);
+    expect(player.chargeStarted).toBe(0);
+  });
+
   it("limits block hold time and validates heavy charge on the server", () => {
     const player = createPlayer("a", "Alpha", 0);
     player.input.blocking = true;
@@ -94,6 +109,51 @@ describe("authoritative combat simulation", () => {
     expect(player.charging).toBe(true);
     expect(consumeHeavyCharge(player, 1, 4_100)).toBe(1);
     expect(player.charging).toBe(false);
+  });
+
+  it("starts block cooldown when a defender releases early", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.input.blocking = true;
+    stepPlayer(player, 1 / 30, 1_000);
+    expect(player.blocking).toBe(true);
+
+    player.input.blocking = false;
+    stepPlayer(player, 1 / 30, 1_050);
+    expect(player.blocking).toBe(false);
+    expect(player.blockCooldownUntil).toBe(1_050 + GAME.blockCooldownMs);
+
+    player.input.blocking = true;
+    stepPlayer(player, 1 / 30, 1_051);
+    expect(player.blocking).toBe(false);
+  });
+
+  it("requires a key-up before a timed-out held block can rearm", () => {
+    const player = createPlayer("a", "Alpha", 0);
+    player.input.blocking = true;
+    stepPlayer(player, 1 / 30, 1_000);
+    stepPlayer(player, 1 / 30, 1_000 + GAME.blockMaxHoldMs);
+    expect(player.blocking).toBe(false);
+
+    stepPlayer(
+      player,
+      1 / 30,
+      1_000 + GAME.blockMaxHoldMs + GAME.blockCooldownMs + 1,
+    );
+    expect(player.blocking).toBe(false);
+
+    player.input.blocking = false;
+    stepPlayer(
+      player,
+      1 / 30,
+      1_000 + GAME.blockMaxHoldMs + GAME.blockCooldownMs + 2,
+    );
+    player.input.blocking = true;
+    stepPlayer(
+      player,
+      1 / 30,
+      1_000 + GAME.blockMaxHoldMs + GAME.blockCooldownMs + 3,
+    );
+    expect(player.blocking).toBe(true);
   });
 
   it("applies a valid hit and scales knockback", () => {
@@ -143,15 +203,15 @@ describe("authoritative combat simulation", () => {
     expect(botVictim.velocity.y).toBeLessThan(playerVictim.velocity.y);
   });
 
-  it("rewards a precisely timed parry", () => {
+  it("ends a precisely timed parry and locks it until key-up", () => {
     const attacker = createPlayer("a", "Alpha", 0);
     const victim = createPlayer("b", "Bravo", 0);
     attacker.position = { x: 0, y: 1.1, z: 0 };
     victim.position = { x: 0, y: 1.1, z: -2 };
     attacker.protectionUntil = 0;
     victim.protectionUntil = 0;
-    victim.blocking = true;
-    victim.blockStarted = 900;
+    victim.input.blocking = true;
+    stepPlayer(victim, 1 / 30, 900);
     const hit = performAttack(
       attacker,
       [attacker, victim],
@@ -162,29 +222,52 @@ describe("authoritative combat simulation", () => {
     );
     expect(hit?.parried).toBe(true);
     expect(victim.knockback).toBeLessThan(3);
+    expect(victim.blocking).toBe(false);
+    expect(victim.blockCooldownUntil).toBe(1_000 + GAME.blockCooldownMs);
+
+    stepPlayer(victim, 1 / 30, 1_000 + GAME.blockCooldownMs + 1);
+    expect(victim.blocking).toBe(false);
+
+    victim.input.blocking = false;
+    stepPlayer(victim, 1 / 30, 1_000 + GAME.blockCooldownMs + 2);
+    victim.input.blocking = true;
+    stepPlayer(victim, 1 / 30, 1_000 + GAME.blockCooldownMs + 3);
+    expect(victim.blocking).toBe(true);
   });
 
-  it("makes a held block absorb most damage and launch force", () => {
-    const attacker = createPlayer("a", "Alpha", 0),
-      victim = createPlayer("b", "Bravo", 0);
-    attacker.position = { x: 0, y: 1.1, z: 0 };
-    victim.position = { x: 0, y: 1.1, z: -2 };
-    attacker.protectionUntil = 0;
-    victim.protectionUntil = 0;
-    victim.blocking = true;
-    victim.blockStarted = 0;
-    const hit = performAttack(
-      attacker,
-      [attacker, victim],
-      "light",
-      0,
-      0,
-      1_000,
-    );
-    expect(hit?.blocked).toBe(true);
-    expect(hit?.parried).toBe(false);
-    expect(victim.knockback).toBeLessThan(2);
-    expect(Math.abs(victim.velocity.z)).toBeLessThan(2);
+  it("lets a normal block pass roughly half the damage and launch force", () => {
+    const strike = (blocking: boolean, suffix: string) => {
+      const attacker = createPlayer(`a-${suffix}`, "Alpha", 0);
+      const victim = createPlayer(`b-${suffix}`, "Bravo", 0);
+      attacker.position = { x: 0, y: 1.1, z: 0 };
+      victim.position = { x: 0, y: 1.1, z: -2 };
+      attacker.protectionUntil = 0;
+      victim.protectionUntil = 0;
+      victim.blocking = blocking;
+      victim.blockStarted = 0;
+      const hit = performAttack(
+        attacker,
+        [attacker, victim],
+        "light",
+        0,
+        0,
+        1_000,
+      );
+      return { hit, victim };
+    };
+
+    const open = strike(false, "open");
+    const guarded = strike(true, "guarded");
+    expect(guarded.hit?.blocked).toBe(true);
+    expect(guarded.hit?.parried).toBe(false);
+
+    const damageRatio = guarded.victim.knockback / open.victim.knockback;
+    const launchRatio =
+      Math.abs(guarded.victim.velocity.z) / Math.abs(open.victim.velocity.z);
+    expect(damageRatio).toBeGreaterThanOrEqual(0.45);
+    expect(damageRatio).toBeLessThanOrEqual(0.55);
+    expect(launchRatio).toBeGreaterThanOrEqual(0.45);
+    expect(launchRatio).toBeLessThanOrEqual(0.55);
   });
 
   it("detects a fall below the knockout zone", () => {

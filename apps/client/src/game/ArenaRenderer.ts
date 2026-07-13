@@ -88,6 +88,7 @@ export class ArenaRenderer {
   private dashEffect = 0;
   private lastDashEffect = Number.NEGATIVE_INFINITY;
   private blockStartedAt = 0;
+  private lastBlockEndedAt = 0;
   private blockExhausted = false;
   private suppressNextPointerPause = false;
   private lastSpeedTrail = 0;
@@ -270,6 +271,12 @@ export class ArenaRenderer {
         if (message.attackerId === this.playerId) this.punchTime = 0.12;
         if (message.victimId === this.playerId) {
           this.impactKick = message.kind === "heavy" ? 1 : 0.55;
+          if (message.parried) {
+            const blockWasHeld = this.input.block;
+            this.input.block = false;
+            this.blockExhausted = blockWasHeld;
+            this.lastBlockEndedAt = performance.now();
+          }
           if (message.finisher)
             this.predictor.triggerFinisher(
               message.finisherDurationMs ?? GAME.finisherDurationMs,
@@ -369,10 +376,17 @@ export class ArenaRenderer {
           this.chargeStart = 0;
           this.input.charging = false;
         }
-        if (!this.input.block && !this.blockExhausted) {
-          this.blockStartedAt = performance.now();
+        const now = performance.now();
+        if (
+          !this.input.block &&
+          !this.blockExhausted &&
+          cooldownReadiness(this.lastBlockEndedAt, GAME.blockCooldownMs, now) >=
+            1
+        ) {
+          this.blockStartedAt = now;
           this.audio.playGuard();
           this.input.block = true;
+          this.sendCurrentInputFrame();
         }
         this.onTutorialAction("block");
       }
@@ -388,11 +402,15 @@ export class ArenaRenderer {
       if (matches(e.code, "left")) this.input.left = false;
       if (matches(e.code, "right")) this.input.right = false;
       if (matches(e.code, "block")) {
+        const shouldSendRelease = this.input.block || this.blockExhausted;
+        if (this.input.block) this.lastBlockEndedAt = performance.now();
         this.input.block = false;
         this.blockExhausted = false;
+        if (shouldSendRelease) this.sendCurrentInputFrame();
       }
     };
     const blur = () => {
+      if (this.input.block) this.lastBlockEndedAt = performance.now();
       this.input = {
         forward: false,
         back: false,
@@ -493,6 +511,15 @@ export class ArenaRenderer {
     };
   }
   private cleanup = () => {};
+  private sendCurrentInputFrame(): number {
+    const local = this.snapshots.get(this.playerId);
+    const spectating = !!local?.eliminated && this.phase === "playing";
+    return this.sendInputFrame(
+      Number(this.input.right) - Number(this.input.left),
+      Number(this.input.back) - Number(this.input.forward),
+      spectating,
+    );
+  }
   private sendInputFrame(
     moveX: number,
     moveZ: number,
@@ -726,6 +753,8 @@ export class ArenaRenderer {
     ) {
       this.input.block = false;
       this.blockExhausted = true;
+      this.lastBlockEndedAt = hudNow;
+      this.sendCurrentInputFrame();
     }
     const flightSpeed = local
       ? Math.hypot(local.velocity.x, local.velocity.y, local.velocity.z)
@@ -760,10 +789,16 @@ export class ArenaRenderer {
           GAME.heavyCooldownMs,
           hudNow,
         ),
+        blockReady: cooldownReadiness(
+          this.lastBlockEndedAt,
+          GAME.blockCooldownMs,
+          hudNow,
+        ),
         heavyCharge: this.chargeStart
           ? Math.min(1, (hudNow - this.chargeStart) / GAME.heavyChargeMs)
           : 0,
         blocking: this.input.block,
+        blockNeedsRelease: this.blockExhausted,
         parryActive: this.input.block && hudNow - this.blockStartedAt < 190,
         validTarget:
           !!targetingLocal &&

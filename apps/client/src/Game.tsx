@@ -482,7 +482,13 @@ export function Game({
         />
         <CombatMeter
           label="BLOCK"
-          value={combatHud.blocking ? 1 : 0}
+          value={
+            combatHud.blocking
+              ? 1
+              : combatHud.blockNeedsRelease
+                ? 0
+                : combatHud.blockReady
+          }
           enabled={combatHud.blockEnabled}
           active={combatHud.blocking}
           status={
@@ -490,7 +496,11 @@ export function Game({
               ? "PARRY!"
               : combatHud.blocking
                 ? "AKTIV"
-                : "HALTEN"
+                : combatHud.blockNeedsRelease
+                  ? "LOSLASSEN"
+                  : combatHud.blockReady < 1
+                    ? "ERHOLUNG"
+                    : "HALTEN"
           }
         />
       </div>

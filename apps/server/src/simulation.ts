@@ -36,6 +36,7 @@ export type SimPlayer = PlayerSnapshot & {
   protectionUntil: number;
   blockStarted: number;
   blockCooldownUntil: number;
+  blockNeedsRelease: boolean;
   chargeStarted: number;
   lastWallHit: number;
   airRecoveryAvailable: boolean;
@@ -130,6 +131,7 @@ export function createPlayer(
     protectionUntil: Date.now() + GAME.spawnProtectionMs,
     blockStarted: 0,
     blockCooldownUntil: 0,
+    blockNeedsRelease: false,
     chargeStarted: 0,
     lastWallHit: 0,
     airRecoveryAvailable: true,
@@ -162,6 +164,7 @@ export function respawn(player: SimPlayer, index: number, now: number): void {
   player.input.charging = false;
   player.blockStarted = 0;
   player.blockCooldownUntil = 0;
+  player.blockNeedsRelease = false;
   player.chargeStarted = 0;
   player.damageContributors.clear();
   player.hitStunUntil = 0;
@@ -199,6 +202,43 @@ function resolveWalls(
   return { position: { ...player.position }, intensity };
 }
 
+function endBlock(player: SimPlayer, now: number, needsRelease: boolean): void {
+  player.blocking = false;
+  player.blockStarted = 0;
+  player.blockCooldownUntil = Math.max(
+    player.blockCooldownUntil,
+    now + GAME.blockCooldownMs,
+  );
+  player.blockNeedsRelease = needsRelease;
+}
+
+export function syncBlockInputState(player: SimPlayer, now: number): void {
+  if (player.input.blocking && !player.input.charging && player.charging) {
+    player.charging = false;
+    player.chargeStarted = 0;
+  }
+  const blockEligible =
+    player.input.blocking && !player.input.charging && !player.charging;
+  if (!player.input.blocking) {
+    if (player.blocking) endBlock(player, now, false);
+    player.blockNeedsRelease = false;
+  } else if (
+    player.blocking &&
+    (!blockEligible || now - player.blockStarted >= GAME.blockMaxHoldMs)
+  ) {
+    endBlock(player, now, true);
+  }
+  if (
+    blockEligible &&
+    !player.blocking &&
+    !player.blockNeedsRelease &&
+    now >= player.blockCooldownUntil
+  ) {
+    player.blocking = true;
+    player.blockStarted = now;
+  }
+}
+
 export function stepPlayer(
   player: SimPlayer,
   dt: number,
@@ -216,19 +256,7 @@ export function stepPlayer(
   } else if (!wantsCharging && player.charging) {
     player.charging = false;
   }
-  if (player.blocking && now - player.blockStarted >= GAME.blockMaxHoldMs) {
-    player.blocking = false;
-    player.blockCooldownUntil = now + GAME.blockCooldownMs;
-  }
-  const wantsBlock =
-    player.input.blocking &&
-    !player.input.charging &&
-    !player.charging &&
-    now >= player.blockCooldownUntil;
-  if (wantsBlock !== player.blocking) {
-    player.blocking = wantsBlock;
-    if (player.blocking) player.blockStarted = now;
-  }
+  syncBlockInputState(player, now);
   const sin = Math.sin(player.yaw),
     cos = Math.cos(player.yaw);
   const worldX = player.input.moveX * cos + player.input.moveZ * sin;
@@ -663,8 +691,9 @@ export function performAttack(
     }
   }
   if (!target || !targetHit) return undefined;
-  const parried = target.blocking && now - target.blockStarted < 190;
-  const defended = target.blocking ? (parried ? 0.025 : 0.14) : 1;
+  const blocked = target.blocking;
+  const parried = blocked && now - target.blockStarted < 190;
+  const defended = blocked ? (parried ? 0.025 : 0.5) : 1;
   const safeCharge = kind === "heavy" ? Math.min(1, Math.max(0.15, charge)) : 0;
   const finisher =
     !target.blocking &&
@@ -717,11 +746,12 @@ export function performAttack(
   if (parried) {
     attacker.velocity.x -= fx * 3.5;
     attacker.velocity.z -= fz * 3.5;
+    endBlock(target, now, true);
   }
   return {
     victim: target,
     parried,
-    blocked: target.blocking,
+    blocked,
     finisher,
     position: targetHit.point,
   };
