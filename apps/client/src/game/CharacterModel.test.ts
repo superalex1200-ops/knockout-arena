@@ -72,7 +72,7 @@ describe("CharacterModel", () => {
     expect(namedMesh(visual.root, "visor")).toBeDefined();
     expect(namedMesh(visual.root, "chest-chevron")).toBeDefined();
     expect(meshes.length).toBe(23);
-    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v6");
+    expect(visual.root.userData.design).toBe("cohesive-combat-robot-v7");
     expect(meshes.some((mesh) => mesh.name.includes("knuckle"))).toBe(false);
     expect(meshes.some((mesh) => mesh.geometry.type === "BoxGeometry")).toBe(
       false,
@@ -110,7 +110,8 @@ describe("CharacterModel", () => {
     expect(helmetSize.x / torsoSize.x).toBeLessThan(0.7);
     expect(helmetSize.z / helmetSize.x).toBeLessThan(0.9);
     expect(gloveSize.x / torsoSize.x).toBeLessThan(0.42);
-    expect(gloveSize.z / gloveSize.x).toBeGreaterThan(1.45);
+    expect(gloveSize.z / gloveSize.x).toBeGreaterThan(0.9);
+    expect(gloveSize.z / gloveSize.x).toBeLessThan(1.3);
     for (const jointName of ["elbow-left", "elbow-right"]) {
       const jointSize = boundsFor(namedMesh(visual.root, jointName)).getSize(
         new THREE.Vector3(),
@@ -252,7 +253,7 @@ describe("CharacterModel", () => {
         const sleeve = namedMesh(fist, "fp-sleeve");
         const forearmArmor = namedMesh(fist, "fp-forearm-armor");
         expect(fist.children).toHaveLength(4);
-        expect(fist.userData.design).toBe("combat-robot-glove-v6");
+        expect(fist.userData.design).toBe("combat-robot-glove-v7");
         expect(
           fist.children.some((child) => child.name.includes("knuckle")),
         ).toBe(false);
@@ -260,21 +261,53 @@ describe("CharacterModel", () => {
         expect(overlapVolume(cuff, sleeve)).toBeGreaterThan(0.00005);
         expect(overlapVolume(sleeve, forearmArmor)).toBeGreaterThan(0.00001);
         expect(bounds.max.z).toBeLessThan(-0.72);
-        expect(size.x).toBeLessThan(0.36);
-        expect(size.y).toBeLessThan(0.6);
+        expect(size.x).toBeLessThan(0.44);
+        expect(size.y).toBeLessThan(0.82);
         shell.geometry.computeBoundingBox();
         const localShellSize = shell.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
-        expect(localShellSize.z / localShellSize.x).toBeGreaterThan(1.55);
+        expect(localShellSize.z / localShellSize.x).toBeGreaterThan(0.9);
+        expect(localShellSize.z / localShellSize.x).toBeLessThan(1.3);
+        cuff.geometry.computeBoundingBox();
+        const localCuffSize = cuff.geometry.boundingBox!.getSize(
+          new THREE.Vector3(),
+        );
         sleeve.geometry.computeBoundingBox();
         const localSleeveSize = sleeve.geometry.boundingBox!.getSize(
           new THREE.Vector3(),
         );
-        expect(localSleeveSize.z / localSleeveSize.x).toBeGreaterThan(1.7);
+        expect(localShellSize.x / localCuffSize.x).toBeGreaterThan(1.55);
+        expect(localShellSize.x / localSleeveSize.x).toBeGreaterThan(1.3);
+        expect(localSleeveSize.z / localSleeveSize.x).toBeLessThan(3.2);
+        expect(localSleeveSize.y / localSleeveSize.x).toBeGreaterThan(1.35);
+        expect(sleeve.geometry.type).not.toBe("CylinderGeometry");
       }
       expect(boundsBySide.get(-1)!.max.x).toBeLessThan(-0.015);
       expect(boundsBySide.get(1)!.min.x).toBeGreaterThan(0.015);
+    }
+
+    for (const side of [-1, 1] as const) {
+      const rest = firstPersonGlovePose({
+        side,
+        blocking: false,
+        charging: false,
+        chargeAmount: 0,
+        punching: false,
+        punchPhase: 0,
+      });
+      const punch = firstPersonGlovePose({
+        side,
+        blocking: false,
+        charging: false,
+        chargeAmount: 0,
+        punching: true,
+        punchPhase: 1,
+      });
+      expect(rest.position.z - punch.position.z).toBeGreaterThanOrEqual(0.85);
+      expect(
+        Math.abs(rest.position.x) - Math.abs(punch.position.x),
+      ).toBeGreaterThanOrEqual(0.18);
     }
   });
 

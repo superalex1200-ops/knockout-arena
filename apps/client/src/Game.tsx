@@ -76,7 +76,7 @@ export function Game({
     () => new Set(),
   );
   const [trainingBotMode, setTrainingBotMode] =
-    useState<TrainingBotMode>("static");
+    useState<TrainingBotMode>("aggressive");
   const [rules, setRules] = useState<MatchRules>({ ...DEFAULT_MATCH_RULES });
   const [spectatorTargetId, setSpectatorTargetId] = useState("");
   const [paused, setPaused] = useState(false);
@@ -1033,7 +1033,7 @@ const tutorialSteps: Array<{ action: TutorialAction; label: string }> = [
 const botModes: Array<{ value: TrainingBotMode; label: string }> = [
   { value: "static", label: "STATISCH" },
   { value: "strafe", label: "SEITLICH" },
-  { value: "aggressive", label: "ANGRIFF" },
+  { value: "aggressive", label: "SPARRING" },
   { value: "blocking", label: "BLOCK" },
 ];
 function TutorialPanel({

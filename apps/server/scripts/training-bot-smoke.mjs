@@ -5,17 +5,18 @@ const url = process.env.TEST_SERVER_URL ?? "ws://localhost:2567/ws";
 const roomCode = `TR${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 const socket = new WebSocket(url, websocketOptions(url));
 let sawMode = false,
-  sawStaticMode = false,
   sawBot = false,
+  sawApproach = false,
   sawAttack = false,
-  requestedAggressiveMode = false,
+  initialDistance,
+  joinedAt = 0,
   finished = false;
 const timer = setTimeout(
   () =>
     finish(
       new Error("Timed out waiting for an authoritative training-bot hit"),
     ),
-  12_000,
+  15_000,
 );
 
 function finish(error) {
@@ -29,7 +30,8 @@ function finish(error) {
   } else console.log(`Training bot smoke passed in room ${roomCode}`);
 }
 
-socket.on("open", () =>
+socket.on("open", () => {
+  joinedAt = Date.now();
   socket.send(
     JSON.stringify({
       type: "join",
@@ -39,29 +41,43 @@ socket.on("open", () =>
       protocolVersion: 1,
       createRoom: true,
     }),
-  ),
-);
+  );
+});
 socket.on("message", (raw) => {
   const message = JSON.parse(raw.toString());
   if (message.type === "snapshot") {
-    if (message.trainingBotMode === "static" && !requestedAggressiveMode) {
-      sawStaticMode = true;
-      requestedAggressiveMode = true;
-      socket.send(
-        JSON.stringify({ type: "setTrainingBotMode", mode: "aggressive" }),
+    if (!sawMode && message.trainingBotMode !== "aggressive")
+      return finish(
+        new Error(
+          `Training should start in aggressive mode, got ${message.trainingBotMode}`,
+        ),
       );
+    sawMode = true;
+    const bot = message.players.find((player) => player.bot);
+    const human = message.players.find((player) => !player.bot);
+    if (bot) sawBot = true;
+    if (bot && human) {
+      const distance = Math.hypot(
+        bot.position.x - human.position.x,
+        bot.position.z - human.position.z,
+      );
+      initialDistance ??= distance;
+      if (distance < initialDistance - 0.35) sawApproach = true;
     }
-    if (message.trainingBotMode === "aggressive") sawMode = true;
-    if (message.players.some((player) => player.bot)) sawBot = true;
   }
-  if (message.type === "attack" && message.attackerId === "coach-bot")
+  if (message.type === "attack" && message.attackerId === "coach-bot") {
+    if (Date.now() - joinedAt < 1_400)
+      return finish(
+        new Error("Training bot attacked during the opening grace"),
+      );
     sawAttack = true;
+  }
   if (
     message.type === "hit" &&
     message.attackerId === "coach-bot" &&
-    sawStaticMode &&
     sawMode &&
     sawBot &&
+    sawApproach &&
     sawAttack
   )
     finish();

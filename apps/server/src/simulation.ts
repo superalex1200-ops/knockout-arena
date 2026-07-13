@@ -56,6 +56,23 @@ export type StepResult = {
   wallHit?: { position: Vec3; intensity: number };
 };
 
+export const TRAINING_BOT_OPENING_GRACE_MS = 1_500;
+export const TRAINING_BOT_ATTACK_INTERVAL_MS = 1_350;
+export const TRAINING_BOT_COMBAT_SCALE = 0.58;
+
+export function trainingBotCanEngage(
+  human: SimPlayer,
+  matchStartedAt: number,
+  now: number,
+): boolean {
+  return (
+    !human.respawnAt &&
+    !human.eliminated &&
+    now >= matchStartedAt + TRAINING_BOT_OPENING_GRACE_MS &&
+    now >= human.protectionUntil
+  );
+}
+
 const spawnPoints: Vec3[] = [
   { x: -7, y: 1.1, z: -7 },
   { x: 7, y: 1.1, z: 7 },
@@ -654,21 +671,24 @@ export function performAttack(
     kind === "heavy" &&
     safeCharge >= 0.65 &&
     target.knockback >= 100;
+  const combatPower = attacker.bot ? TRAINING_BOT_COMBAT_SCALE : 1;
   const force =
     knockbackForce(target.knockback, safeCharge) *
     defended *
     Math.max(0.5, Math.min(2, knockbackMultiplier)) *
-    (finisher ? 1.5 : 1);
+    (finisher ? 1.5 : 1) *
+    combatPower;
   target.velocity.x += fx * force;
   target.velocity.z += fz * force;
   target.velocity.y = Math.max(
     target.velocity.y,
-    finisher ? 9 : 3.4 + force * 0.16,
+    finisher ? 9 : 3.4 * combatPower + force * 0.16,
   );
   target.grounded = false;
   target.knockback = Math.min(
     300,
-    target.knockback + (kind === "heavy" ? 13 + safeCharge * 5 : 10) * defended,
+    target.knockback +
+      (kind === "heavy" ? 13 + safeCharge * 5 : 10) * defended * combatPower,
   );
   target.lastAttacker = attacker.id;
   target.damageContributors.set(attacker.id, now);

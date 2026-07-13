@@ -15,6 +15,10 @@ import {
   respawn,
   resolvePlayerCollisions,
   stepPlayer,
+  TRAINING_BOT_ATTACK_INTERVAL_MS,
+  TRAINING_BOT_COMBAT_SCALE,
+  TRAINING_BOT_OPENING_GRACE_MS,
+  trainingBotCanEngage,
 } from "./simulation.js";
 
 const penetratesFloorSlab = (player: ReturnType<typeof createPlayer>) => {
@@ -110,6 +114,33 @@ describe("authoritative combat simulation", () => {
     expect(hit?.victim.id).toBe("b");
     expect(victim.knockback).toBe(10);
     expect(victim.velocity.z).toBeLessThan(0);
+  });
+
+  it("keeps sparring-bot punches useful but clearly weaker than player hits", () => {
+    const player = createPlayer("p", "Player", 0);
+    const bot = createPlayer("bot", "Bot", 0, true);
+    const playerVictim = createPlayer("pv", "Player Victim", 0);
+    const botVictim = createPlayer("bv", "Bot Victim", 0);
+    for (const attacker of [player, bot]) {
+      attacker.position = { x: 0, y: 1.1, z: 0 };
+      attacker.protectionUntil = 0;
+    }
+    for (const victim of [playerVictim, botVictim]) {
+      victim.position = { x: 0, y: 1.1, z: -2 };
+      victim.protectionUntil = 0;
+    }
+
+    expect(
+      performAttack(player, [player, playerVictim], "light", 0, 0, 1_000),
+    ).toBeDefined();
+    expect(
+      performAttack(bot, [bot, botVictim], "light", 0, 0, 1_000),
+    ).toBeDefined();
+    expect(botVictim.knockback).toBeCloseTo(10 * TRAINING_BOT_COMBAT_SCALE);
+    expect(Math.abs(botVictim.velocity.z)).toBeLessThan(
+      Math.abs(playerVictim.velocity.z),
+    );
+    expect(botVictim.velocity.y).toBeLessThan(playerVictim.velocity.y);
   });
 
   it("rewards a precisely timed parry", () => {
@@ -586,6 +617,35 @@ describe("authoritative combat simulation", () => {
     stepPlayer(player, 0.1, 2_000);
     stepPlayer(bot, 0.1, 2_000);
     expect(Math.abs(bot.position.z)).toBeLessThan(Math.abs(player.position.z));
+  });
+
+  it("gives the trainee an opening grace before the bot can engage", () => {
+    const human = createPlayer("p", "Player", 0);
+    const matchStartedAt = 10_000;
+    human.protectionUntil = 0;
+
+    expect(
+      trainingBotCanEngage(
+        human,
+        matchStartedAt,
+        matchStartedAt + TRAINING_BOT_OPENING_GRACE_MS - 1,
+      ),
+    ).toBe(false);
+    expect(
+      trainingBotCanEngage(
+        human,
+        matchStartedAt,
+        matchStartedAt + TRAINING_BOT_OPENING_GRACE_MS,
+      ),
+    ).toBe(true);
+    expect(TRAINING_BOT_ATTACK_INTERVAL_MS).toBeGreaterThan(
+      GAME.punchCooldownMs,
+    );
+
+    human.protectionUntil = matchStartedAt + 3_000;
+    expect(
+      trainingBotCanEngage(human, matchStartedAt, matchStartedAt + 2_000),
+    ).toBe(false);
   });
 
   it("credits recent secondary contributors with an assist", () => {

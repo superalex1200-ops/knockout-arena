@@ -29,6 +29,8 @@ import {
   respawn,
   resolvePlayerCollisions,
   stepPlayer,
+  TRAINING_BOT_ATTACK_INTERVAL_MS,
+  trainingBotCanEngage,
   type SimPlayer,
 } from "./simulation.js";
 import { parseClientMessage } from "./protocol.js";
@@ -155,7 +157,7 @@ function createRoom(mode: MatchMode): Room {
     matchId: randomUUID(),
     matchStartedAt: 0,
     mode,
-    trainingBotMode: "static",
+    trainingBotMode: "aggressive",
     rules: { ...DEFAULT_MATCH_RULES },
     rematchVotes: new Set(),
   };
@@ -1099,50 +1101,57 @@ const simulationTimer = setInterval(() => {
           if (room.trainingBotMode === "strafe")
             player.input.moveX = Math.sin(now / 900) * 0.45;
           if (room.trainingBotMode === "aggressive") {
-            player.input.moveZ =
-              navigatingAroundWall || distance > GAME.punchRange - 0.35
-                ? -0.48
-                : 0;
-            const attackYaw = Math.atan2(-dx, -dz);
-            const previousAttackAt = player.lastAttack;
-            const attack =
-              distance < GAME.punchRange - 0.05 &&
-              now - player.lastAttack >= 950
-                ? performAttack(
-                    player,
-                    room.players.values(),
-                    "light",
-                    0,
-                    attackYaw,
-                    now,
-                    0,
-                    room.rules.knockbackMultiplier,
-                  )
-                : undefined;
-            if (player.lastAttack !== previousAttackAt)
-              broadcast(room, {
-                type: "attack",
-                attackerId: player.id,
-                kind: "light",
-                charge: 0,
-                pitch: 0,
-              });
-            if (attack)
-              broadcast(room, {
-                type: "hit",
-                attackerId: player.id,
-                victimId: attack.victim.id,
-                kind: "light",
-                parried: attack.parried,
-                blocked: attack.blocked,
-                finisher: attack.finisher,
-                knockback: attack.victim.knockback,
-                combo: player.combo,
-                position: attack.position,
-                finisherDurationMs: attack.finisher
-                  ? GAME.finisherDurationMs
-                  : undefined,
-              });
+            const canEngage = trainingBotCanEngage(
+              human,
+              room.matchStartedAt,
+              now,
+            );
+            if (canEngage) {
+              player.input.moveZ =
+                navigatingAroundWall || distance > GAME.punchRange - 0.35
+                  ? -0.48
+                  : 0;
+              const attackYaw = Math.atan2(-dx, -dz);
+              const previousAttackAt = player.lastAttack;
+              const attack =
+                distance < GAME.punchRange - 0.05 &&
+                now - player.lastAttack >= TRAINING_BOT_ATTACK_INTERVAL_MS
+                  ? performAttack(
+                      player,
+                      room.players.values(),
+                      "light",
+                      0,
+                      attackYaw,
+                      now,
+                      0,
+                      room.rules.knockbackMultiplier,
+                    )
+                  : undefined;
+              if (player.lastAttack !== previousAttackAt)
+                broadcast(room, {
+                  type: "attack",
+                  attackerId: player.id,
+                  kind: "light",
+                  charge: 0,
+                  pitch: 0,
+                });
+              if (attack)
+                broadcast(room, {
+                  type: "hit",
+                  attackerId: player.id,
+                  victimId: attack.victim.id,
+                  kind: "light",
+                  parried: attack.parried,
+                  blocked: attack.blocked,
+                  finisher: attack.finisher,
+                  knockback: attack.victim.knockback,
+                  combo: player.combo,
+                  position: attack.position,
+                  finisherDurationMs: attack.finisher
+                    ? GAME.finisherDurationMs
+                    : undefined,
+                });
+            }
           }
           if (room.trainingBotMode === "blocking") {
             player.input.moveX = Math.sin(now / 1_100) * 0.18;
